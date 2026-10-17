@@ -86,7 +86,6 @@ function useAppState() {
   const [depthMode, setDepthMode] = useState('auto'); // see depth/DepthSource.jsx
   const [depthMesh, setDepthMesh] = useState(true); // the camera drawn at its depth, not flat
   const [strength, setStrength] = useState(1); // the phone viewer's eye separation, times true scale
-  const [fov, setFov] = useState('fill'); // the phone viewer: 'fill' (magnified to the camera's view) | 'true'
   const [filter, setFilterName] = useState('none');
   const [background, setBackground] = useState('passthrough'); // 'solid' | 'skybox' | 'passthrough' | 'testFeed'
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
@@ -106,13 +105,13 @@ function useAppState() {
       closeDropdown: () => setDropdown(null),
       /** A choice from a dropdown's list (see dropdownChoices), which then closes. */
       pick: (id, choice) => {
-        ({ depthMode: setDepthMode, strength: setStrength, fov: setFov, filter: setFilterName, background: setBackground })[id](choice);
+        ({ depthMode: setDepthMode, strength: setStrength, filter: setFilterName, background: setBackground })[id](choice);
         setDropdown(null);
       },
     }),
     [],
   );
-  const state = { depthMode, depthMesh, strength, fov, filter, background, menuOpen, page, dropdown };
+  const state = { depthMode, depthMesh, strength, filter, background, menuOpen, page, dropdown };
   return [state, actions];
 }
 

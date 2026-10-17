@@ -9,7 +9,7 @@ import { SideBySide } from './SideBySide.jsx';
 import { Interlaced } from './Interlaced.jsx';
 import { CameraBackground, CardboardRig } from './Cardboard.jsx';
 import { GazeReticle } from './Gaze.jsx';
-import { PhoneStereoCameraFeed, PhoneStereoXR } from './PhoneStereo.jsx';
+import { PhoneStereoXR } from './PhoneStereo.jsx';
 import { DepthPassthrough } from './DepthPassthrough.jsx';
 import { DepthSource } from './depth/DepthSource.jsx';
 import { SOLID_BACKGROUND } from './menu.js';
@@ -188,8 +188,8 @@ export default function Scene({ state, menu, phone, testFeed }) {
   const immersive = inSession || state.handheld;
   // the motion-sensor view has no AR session: passthrough is the rear camera
   const cameraPassthrough = state.handheld && state.passthrough;
-  // the camera as a surface at its depth: the phone's in AR, or the test feed's
-  const depthPassthrough = state.depthMesh && ((phone && inAR && state.passthrough) || Boolean(testFeed));
+  // the camera image in the room, true to scale with outfill: the phone's in AR, or the test feed's
+  const cameraInRoom = (phone && inAR && state.passthrough) || Boolean(testFeed);
   const [cameraFailed, setCameraFailed] = useState(false);
   useEffect(() => setCameraFailed(false), [cameraPassthrough]);
   const origin = useRef(null);
@@ -210,20 +210,11 @@ export default function Scene({ state, menu, phone, testFeed }) {
       )}
       {state.view === 'sbs' && !immersive && <SideBySide />}
       {state.view === 'interlaced' && !immersive && <Interlaced />}
-      {phoneStereo && <PhoneStereoXR strength={state.strength} fill={state.fov === 'fill'} />}
-      {/* the flat camera image, when the depth passthrough (which has its own backdrop) is off */}
-      {phone && inAR && state.passthrough && !depthPassthrough && (
-        <PhoneStereoCameraFeed
-          stereo={phoneStereo}
-          onUnavailable={(reason) =>
-            console.warn(`[depth-xr] no camera image (${reason}); the browser's camera view shows behind instead, unfiltered`)
-          }
-        />
-      )}
+      {phoneStereo && <PhoneStereoXR strength={state.strength} />}
       {!inSession && <FloorGrid />}
       <DepthSource mode={state.depthMode} video={testFeed} />
       <Player origin={origin} menu={menuPanel}>
-        {depthPassthrough && <DepthPassthrough />}
+        {cameraInRoom && <DepthPassthrough surface={state.depthMesh} />}
         {immersive &&
           (docked && inSession ? (
             // no groupRef: a docked panel can't be carried off by a grip

@@ -1,64 +1,79 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { unprojectFrame } from './depth/grid.js';
 import { getDepthFrame, liveCamera, useDepthFrameVersion } from './depth/store.js';
 import { FILTER_GLSL, filterUniforms } from './filters.js';
 
-// The camera image as a surface in the room. The latest depth frame's grid
-// is lifted into the room where its view saw it, then coloured with the
-// camera image as it is now, projected from where the camera is now. So
-// each eye of the phone viewer sees real parallax (near things shift more
-// than far ones), and colour stays live even when depth arrives a few
-// frames late. A child of the XROrigin: positions are in its space.
+// The camera image in the room, true to scale.
 //
-// Behind it, the same live image at true scale on a plane across the
-// camera's view, at the scene's typical depth (BACKDROP_QUANTILE of the
-// latest frame), fills the tears and the cells with no depth. Both eyes see
-// it at that depth, so the gaps don't pull the eyes out to infinity.
+// The surface: the latest depth frame's grid lifted into the room where its
+// view saw it, then coloured with the camera image as it is now, projected
+// from where the camera is now. So each eye of the phone viewer sees real
+// parallax (near things shift more than far ones), and colour stays live
+// even when depth arrives a few frames late. A child of the XROrigin:
+// positions are in its space.
 //
 // Triangles across a depth jump (neighbouring cells whose depths differ by
 // more than TEAR of the nearer one) are left out: those are object edges,
 // which would otherwise stretch into rubber sheets between the object and
-// what's behind it. The backdrop fills the gaps. A slope,
-// however steep, changes depth a little per cell and stays whole.
+// what's behind it. A slope, however steep, changes depth a little per cell
+// and stays whole.
+//
+// The dome: a sphere around the camera at the scene's typical depth
+// (DOME_QUANTILE of the latest frame), behind everything. Where the camera
+// can see, it shows the live image at true scale; that fills the surface's
+// tears, at a depth both eyes agree on rather than at infinity. Everywhere
+// else, all the way round, it shows the outfill: the image's edge carried
+// outward and blurred more the further it goes (mip levels of a small copy
+// of the image), so the viewer's periphery, which the camera never sees,
+// has the room's colours and light instead of black. Nothing is stretched.
 
 const TEAR = 0.12;
-const BACKDROP_QUANTILE = 0.75; // the backdrop sits behind most of the scene
-const BACKDROP_DEFAULT = 2.5; // metres, before there is any depth
-const BACKDROP_EASE = 0.1; // per frame, toward the latest depth
+const DOME_QUANTILE = 0.75; // the dome sits behind most of the scene
+const DOME_DEFAULT = 2.5; // metres, before there is any depth
+const DOME_EASE = 0.1; // per frame, toward the latest depth
+const OUTFILL_SIZE = 128; // the blurred copy's size: 8 mip levels
 
-const material = () =>
+const VERTEX = /* glsl */ `
+  varying vec3 vOrigin; // position in XROrigin space
+  void main() {
+    vec4 p = modelMatrix * vec4(position, 1.0);
+    vOrigin = p.xyz;
+    gl_Position = projectionMatrix * viewMatrix * p;
+  }`;
+
+const HEADER = /* glsl */ `
+  uniform sampler2D map;
+  uniform vec2 texel;
+  uniform mat4 worldToCamera;
+  uniform mat4 cameraProjection;
+  varying vec3 vOrigin;
+  ${FILTER_GLSL}
+  vec3 srgbToLinear(vec3 c) {
+    return mix(c * 0.0773993808, pow(c * 0.9478672986 + 0.0521327014, vec3(2.4)), step(vec3(0.04045), c));
+  }`;
+
+const uniforms = () => ({
+  map: { value: null },
+  texel: { value: new THREE.Vector2(1 / 640, 1 / 480) },
+  worldToCamera: { value: new THREE.Matrix4() },
+  cameraProjection: { value: new THREE.Matrix4() },
+  ...filterUniforms,
+});
+
+const surfaceMaterial = () =>
   new THREE.ShaderMaterial({
-    uniforms: {
-      map: { value: null },
-      texel: { value: new THREE.Vector2(1 / 640, 1 / 480) },
-      worldToCamera: { value: new THREE.Matrix4() },
-      cameraProjection: { value: new THREE.Matrix4() },
-      ...filterUniforms,
-    },
-    vertexShader: /* glsl */ `
-      varying vec3 vOrigin; // position in XROrigin space
-      void main() {
-        vOrigin = position;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }`,
+    uniforms: uniforms(),
+    vertexShader: VERTEX,
     fragmentShader: /* glsl */ `
-      uniform sampler2D map;
-      uniform vec2 texel;
-      uniform mat4 worldToCamera;
-      uniform mat4 cameraProjection;
-      varying vec3 vOrigin;
-      ${FILTER_GLSL}
-      vec3 srgbToLinear(vec3 c) {
-        return mix(c * 0.0773993808, pow(c * 0.9478672986 + 0.0521327014, vec3(2.4)), step(vec3(0.04045), c));
-      }
+      ${HEADER}
       void main() {
         vec4 view = worldToCamera * vec4(vOrigin, 1.0);
         vec4 clip = cameraProjection * view;
         if (clip.w <= 0.0) discard;
         vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
-        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) discard; // outside the camera's view
+        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) discard; // the dome draws there
         float depth = -view.z;
         vec3 c = applyFilter(map, uv, texel, depth, fwidth(depth) / max(depth, 1e-3));
         gl_FragColor = vec4(srgbToLinear(c), 1.0);
@@ -66,21 +81,94 @@ const material = () =>
       }`,
   });
 
+const domeMaterial = () =>
+  new THREE.ShaderMaterial({
+    uniforms: { ...uniforms(), outfill: { value: null }, domeDepth: { value: DOME_DEFAULT } },
+    vertexShader: VERTEX,
+    fragmentShader: /* glsl */ `
+      ${HEADER}
+      uniform sampler2D outfill; // the camera image, small, with mip levels
+      uniform float domeDepth;
+      const float FEATHER = 0.04; // uv inside the edge over which the sharp image fades into the outfill
+      const float EDGE_LOD = 3.0; // the outfill's blur at the edge (128 px / 2^3 = 16 px across)
+      const float LOD_PER_UV = 5.0; // and how fast it grows outward
+      void main() {
+        vec3 dir = (worldToCamera * vec4(vOrigin, 1.0)).xyz;
+        // where this direction meets the image plane; behind the camera, far off the edge in its direction
+        vec2 t = dir.z < -1e-4 ? dir.xy / -dir.z : normalize(dir.xy + 1e-6) * 1e3;
+        vec4 clip = cameraProjection * vec4(t, -1.0, 1.0);
+        vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+        vec2 edge = clamp(uv, 0.0, 1.0);
+        float outside = length(uv - edge); // 0 within the image
+        float inside = min(min(edge.x, 1.0 - edge.x), min(edge.y, 1.0 - edge.y));
+        float lod = min(EDGE_LOD + outside * LOD_PER_UV, 7.0);
+        vec3 blurred = textureLod(outfill, edge, lod).rgb * mix(1.0, 0.8, smoothstep(0.0, 1.5, outside));
+        vec3 c = filterColor(blurred, edge, domeDepth, 0.0);
+        if (outside == 0.0) c = mix(c, applyFilter(map, uv, texel, domeDepth, 0.0), smoothstep(0.0, FEATHER, inside));
+        gl_FragColor = vec4(srgbToLinear(c), 1.0);
+        #include <colorspace_fragment>
+      }`,
+    side: THREE.BackSide,
+    depthTest: false,
+    depthWrite: false,
+  });
+
+/** Copies the camera image into a small target with mip levels, for the outfill's blur. */
+class OutfillCopy {
+  constructor() {
+    this.target = new THREE.WebGLRenderTarget(OUTFILL_SIZE, OUTFILL_SIZE, {
+      depthBuffer: false,
+      generateMipmaps: true,
+      minFilter: THREE.LinearMipmapLinearFilter,
+      magFilter: THREE.LinearFilter,
+    });
+    this.material = new THREE.ShaderMaterial({
+      uniforms: { map: { value: null } },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position.xy, 0.0, 1.0);
+        }`,
+      // the raw bytes (sRGB): the dome converts after filtering, as for the sharp image
+      fragmentShader: /* glsl */ `
+        uniform sampler2D map;
+        varying vec2 vUv;
+        void main() { gl_FragColor = vec4(texture2D(map, vUv).rgb, 1.0); }`,
+      depthTest: false,
+      depthWrite: false,
+    });
+    this.scene = new THREE.Scene();
+    this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material);
+    this.quad.frustumCulled = false;
+    this.scene.add(this.quad);
+    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  }
+
+  update(gl, texture) {
+    this.material.uniforms.map.value = texture;
+    const previous = gl.getRenderTarget();
+    const xrEnabled = gl.xr.enabled;
+    gl.xr.enabled = false; // a plain pass: keep three from substituting the XR camera
+    gl.setRenderTarget(this.target);
+    gl.render(this.scene, this.camera);
+    gl.setRenderTarget(previous);
+    gl.xr.enabled = xrEnabled;
+    this.material.uniforms.map.value = null;
+  }
+
+  dispose() {
+    this.target.dispose();
+    this.material.dispose();
+    this.quad.geometry.dispose();
+  }
+}
+
 /** The depth that `q` of a frame's known cells are nearer than, or null if none are known. */
 function depthQuantile(depth, q) {
   const known = depth.filter((d) => d > 0).sort();
   return known.length ? known[Math.min(known.length - 1, Math.floor(q * known.length))] : null;
 }
-
-const _toWorld = new THREE.Matrix4();
-const _unproject = new THREE.Matrix4();
-const _corner = new THREE.Vector4();
-const CORNERS = [
-  [-1, -1],
-  [1, -1],
-  [1, 1],
-  [-1, 1],
-];
 
 /** Triangle indices over the grid, leaving out unknown cells and triangles across depth jumps. */
 function gridIndex(depth, width, height) {
@@ -100,29 +188,30 @@ function gridIndex(depth, width, height) {
   return index;
 }
 
-export function DepthPassthrough() {
+const _toWorld = new THREE.Matrix4();
+
+/** `surface`: draw the camera image at its depth; without it, only the dome (flat at the scene's distance). */
+export function DepthPassthrough({ surface = true }) {
+  const gl = useThree((s) => s.gl);
   const version = useDepthFrameVersion();
-  const mat = useMemo(material, []);
-  const backdropMat = useMemo(() => Object.assign(material(), { depthTest: false, depthWrite: false }), []);
+  const mat = useMemo(surfaceMaterial, []);
+  const domeMat = useMemo(domeMaterial, []);
+  const outfill = useMemo(() => new OutfillCopy(), []);
   const geometry = useMemo(() => new THREE.BufferGeometry(), []);
-  const backdropGeometry = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
-    g.setIndex([0, 1, 2, 0, 2, 3]);
-    return g;
-  }, []);
+  const domeGeometry = useMemo(() => new THREE.SphereGeometry(1, 48, 24), []);
   useEffect(
     () => () => {
       mat.dispose();
-      backdropMat.dispose();
+      domeMat.dispose();
+      outfill.dispose();
       geometry.dispose();
-      backdropGeometry.dispose();
+      domeGeometry.dispose();
     },
-    [mat, backdropMat, geometry, backdropGeometry],
+    [mat, domeMat, outfill, geometry, domeGeometry],
   );
   const mesh = useRef(null);
-  const backdrop = useRef(null);
-  const backdropDepth = useRef({ target: BACKDROP_DEFAULT, current: BACKDROP_DEFAULT });
+  const dome = useRef(null);
+  const domeDepth = useRef({ target: DOME_DEFAULT, current: DOME_DEFAULT });
 
   // a new depth frame: lift its grid into the room
   useEffect(() => {
@@ -135,46 +224,39 @@ export function DepthPassthrough() {
     geometry.setAttribute('position', new THREE.BufferAttribute(unprojectFrame(frame), 3));
     geometry.setIndex(gridIndex(frame.depth, frame.width, frame.height));
     geometry.computeBoundingSphere();
-    backdropDepth.current.target = depthQuantile(frame.depth, BACKDROP_QUANTILE) ?? backdropDepth.current.target;
+    domeDepth.current.target = depthQuantile(frame.depth, DOME_QUANTILE) ?? domeDepth.current.target;
   }, [version, geometry]);
 
-  // colour both with this frame's camera image, and set the backdrop across the camera's view
+  // colour both with this frame's camera image, and centre the dome on the camera
   useFrame(({ clock }) => {
     const texture = liveCamera.texture;
-    mesh.current.visible = Boolean(texture && geometry.index?.count);
-    backdrop.current.visible = Boolean(texture);
+    mesh.current.visible = Boolean(surface && texture && geometry.index?.count);
+    dome.current.visible = Boolean(texture);
     if (!texture) return;
-    for (const { uniforms: u } of [mat, backdropMat]) {
+    for (const { uniforms: u } of [mat, domeMat]) {
       u.map.value = texture;
       u.worldToCamera.value.copy(liveCamera.worldToCamera);
       u.cameraProjection.value.copy(liveCamera.projection);
       u.texel.value.set(1 / liveCamera.size.x, 1 / liveCamera.size.y);
     }
     filterUniforms.filterTime.value = clock.elapsedTime % 100;
+    outfill.update(gl, texture);
+    domeMat.uniforms.outfill.value = outfill.target.texture;
 
-    const d = backdropDepth.current;
-    d.current += (d.target - d.current) * BACKDROP_EASE;
-    _toWorld.copy(liveCamera.worldToCamera).invert();
-    _unproject.copy(liveCamera.projection).invert();
-    const position = backdropGeometry.attributes.position;
-    CORNERS.forEach(([x, y], i) => {
-      // a little past the view's edge, so no seam shows; the shader trims it
-      _corner.set(x * 1.02, y * 1.02, 0.5, 1).applyMatrix4(_unproject);
-      _corner.multiplyScalar(d.current / (-_corner.z / _corner.w) / _corner.w);
-      _corner.w = 1;
-      _corner.applyMatrix4(_toWorld);
-      position.setXYZ(i, _corner.x, _corner.y, _corner.z);
-    });
-    position.needsUpdate = true;
+    const d = domeDepth.current;
+    d.current += (d.target - d.current) * DOME_EASE;
+    domeMat.uniforms.domeDepth.value = d.current;
+    dome.current.position.setFromMatrixPosition(_toWorld.copy(liveCamera.worldToCamera).invert());
+    dome.current.scale.setScalar(d.current);
   }, -1);
 
   return (
     <>
       {/* drawn first, ignoring depth, so the surface and anything virtual draw over it */}
       <mesh
-        ref={backdrop}
-        geometry={backdropGeometry}
-        material={backdropMat}
+        ref={dome}
+        geometry={domeGeometry}
+        material={domeMat}
         renderOrder={-500}
         frustumCulled={false}
         visible={false}
