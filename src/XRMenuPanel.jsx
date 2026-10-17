@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { iconSvg } from './Icon.jsx';
-import { splitLabel } from './menu.js';
+import { SECTION_PREFIX, SET_PREFIX, sliderValue, splitLabel } from './menu.js';
 import { useGazeTarget } from './Gaze.jsx';
 
 // The options panel in XR. It draws the same menu model as the windowed
 // panel (title, status lines, "Name: Value" buttons, and the shared
 // open / collapsed state) onto a canvas, since WebXR can't show page
-// elements. Collapsed, it is just the gear button. Controller rays, hand
+// elements. Collapsed, it is just the frame around the gear button. Controller rays, hand
 // pinches and gaze pick a control from where they hit the texture. A panel taller
 // than MAX_HEIGHT scrolls under its title: push the right thumbstick up or
 // down while pointing at it.
@@ -22,10 +22,11 @@ const BUTTON_H = 62;
 const GAP = 22;
 const ICON = 44;
 const ICON_GAP = 28; // between icon and text
-const TOGGLE = 72; // collapse arrow size
-// the collapsed panel: one gear button in the open panel's top-left corner,
-// sized like the windowed one (44 px beside a 340 px panel), about 6 cm
-const GEAR = Math.round((44 / 340) * W);
+const TOGGLE = 72; // collapse button size
+const TOGGLE_TOP = TITLE_Y - TOGGLE / 2;
+// the collapsed panel: the frame around the gear button, which stays where it is in the open panel
+const COLLAPSED_W = PAD + TOGGLE + PAD;
+const COLLAPSED_H = TOGGLE_TOP + TOGGLE + TOGGLE_TOP;
 const PX_M = WIDTH_M / W; // metres per canvas px
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 export const MENU_TOGGLE = 'menu:toggle';
@@ -51,13 +52,18 @@ const BUTTON_FONT = `500 34px ${FONT}`;
 const TITLE_FONT = `650 46px ${FONT}`;
 const INSET = 18; // icon from the button's left edge, text from its right
 const VALUE_GAP = 40; // at least this between a setting's name and its value
-const TRAILING = 36; // a submenu's arrow or a dropdown's chevron, at the right edge
+const TRAILING = 36; // a section's or a dropdown's chevron, at the right edge
+const SECTION_INDENT = 54; // a section's settings, beneath its button
 // a dropdown's choices: two to a row beneath its button, indented
 const OPTION_FONT = `400 30px ${FONT}`;
 const OPTION_H = 52;
 const OPTION_GAP = 12;
 const OPTION_INDENT = 54;
 const CHECK = 30;
+// a slider: its track between the name and a value wide enough for "0.25×"
+const TRACK_H = 8;
+const KNOB = 30;
+const SLIDER_VALUE_W = 100;
 const OPTION_ICON = 32;
 const OPTION_ICON_GAP = 14;
 
@@ -75,7 +81,7 @@ function labelWidth(label) {
 }
 
 function panelWidth(title, labels) {
-  const button = INSET + ICON + ICON_GAP + Math.max(0, ...labels.map(labelWidth)) + ICON_GAP + TRAILING + INSET;
+  const button = SECTION_INDENT + INSET + ICON + ICON_GAP + Math.max(0, ...labels.map(labelWidth)) + ICON_GAP + TRAILING + INSET;
   const titleRow = TOGGLE + 24 + textWidth(title, TITLE_FONT);
   return Math.ceil(2 * PAD + Math.max(button, titleRow));
 }
@@ -85,21 +91,30 @@ function panelWidth(title, labels) {
  * `item` for a button or `option` for a choice in an open dropdown.
  */
 function layout(open, items, lines, panelW) {
-  if (!open) return { width: GEAR, height: GEAR, rects: [{ id: MENU_TOGGLE, x: 0, y: 0, w: GEAR, h: GEAR }] };
-  const rects = [{ id: MENU_TOGGLE, x: PAD, y: TITLE_Y - TOGGLE / 2, w: TOGGLE, h: TOGGLE }];
+  const toggle = { id: MENU_TOGGLE, x: PAD, y: TOGGLE_TOP, w: TOGGLE, h: TOGGLE };
+  if (!open) return { width: COLLAPSED_W, height: COLLAPSED_H, rects: [toggle] };
+  const rects = [toggle];
   const w = panelW - 2 * PAD;
+  // the sliders' tracks start together, after the widest slider name
+  const sliderName = Math.max(0, ...items.filter((i) => i.slider).map((i) => textWidth(`${splitLabel(i.label).name}:`, BUTTON_FONT)));
   let y = TITLE_Y + 34 + lines * LINE_H + 16;
   for (const item of items) {
-    rects.push({ id: item.id, item, x: PAD, y, w, h: BUTTON_H });
+    const indent = item.indent ? SECTION_INDENT : 0;
+    const r = { id: item.id, item, x: PAD + indent, y, w: w - indent, h: BUTTON_H };
+    if (item.slider) {
+      const x0 = r.x + INSET + ICON + ICON_GAP + sliderName + ICON_GAP + KNOB / 2;
+      r.track = { x0, x1: r.x + r.w - INSET - SLIDER_VALUE_W - ICON_GAP - KNOB / 2 };
+    }
+    rects.push(r);
     y += BUTTON_H + GAP;
     if (!item.dropdown?.open) continue;
-    const optionW = (w - OPTION_INDENT - OPTION_GAP) / 2;
+    const optionW = (w - indent - OPTION_INDENT - OPTION_GAP) / 2;
     item.dropdown.options.forEach((option, i) => {
       const row = Math.floor(i / 2);
       rects.push({
         id: option.id,
         option,
-        x: PAD + OPTION_INDENT + (i % 2) * (optionW + OPTION_GAP),
+        x: PAD + indent + OPTION_INDENT + (i % 2) * (optionW + OPTION_GAP),
         y: y + row * (OPTION_H + OPTION_GAP),
         w: optionW,
         h: OPTION_H,
@@ -111,10 +126,10 @@ function layout(open, items, lines, panelW) {
   return { width: panelW, height: y - GAP + PAD, rects, top: rects[1]?.y ?? 0 };
 }
 
-/** What a button's right edge shows: an arrow to a submenu, or a dropdown's chevron. */
+/** What a button's right edge shows: a section's or a dropdown's chevron. */
 function trailingIcon(item) {
-  if (item.submenu) return 'forward';
-  if (item.dropdown) return item.dropdown.open ? 'dropdownOpen' : 'dropdown';
+  const open = item.section?.open ?? item.dropdown?.open;
+  if (open !== undefined) return open ? 'dropdownOpen' : 'dropdown';
   return null;
 }
 
@@ -137,6 +152,12 @@ function centredText(ctx, text, x, cy) {
   ctx.fillText(text, x, cy + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2);
 }
 
+/** A slider's key at canvas x: "set:<id>:<value>", the value under x along its track. */
+function sliderKey(r, px) {
+  const t = (px - r.track.x0) / (r.track.x1 - r.track.x0);
+  return `${SET_PREFIX}${r.id}:${sliderValue(r.item.slider, t)}`;
+}
+
 function drawButtonFrame(ctx, r, { hot, disabled }) {
   roundRect(ctx, r.x, r.y, r.w, r.h, 18);
   ctx.fillStyle = disabled ? 'rgba(255, 255, 255, 0.04)' : hot ? 'rgba(255, 255, 255, 0.24)' : 'rgba(255, 255, 255, 0.10)';
@@ -144,6 +165,46 @@ function drawButtonFrame(ctx, r, { hot, disabled }) {
   ctx.strokeStyle = hot ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.16)';
   ctx.lineWidth = hot ? 4 : 2;
   ctx.stroke();
+}
+
+/**
+ * A slider row: icon, name, the track with the knob at the value, and the
+ * value at the right edge. `hot`: the key under the pointer, whose value
+ * shows as a ghost knob, so gaze and rays show where a press will set it.
+ */
+function drawSlider(ctx, r, hot, redraw) {
+  const { item, track } = r;
+  drawButtonFrame(ctx, r, { hot: Boolean(hot) });
+  const img = iconImage(item.icon, redraw);
+  if (img.complete && img.naturalWidth) ctx.drawImage(img, r.x + INSET, r.y + (r.h - ICON) / 2, ICON, ICON);
+  const { name, value } = splitLabel(item.label);
+  const cy = r.y + r.h / 2;
+  ctx.fillStyle = '#ffffff';
+  ctx.font = BUTTON_FONT;
+  centredText(ctx, `${name}:`, r.x + INSET + ICON + ICON_GAP, cy);
+  ctx.textAlign = 'right';
+  centredText(ctx, value, r.x + r.w - INSET, cy);
+  ctx.textAlign = 'left';
+  const { min, max } = item.slider;
+  const at = (v) => track.x0 + ((v - min) / (max - min)) * (track.x1 - track.x0);
+  const x = at(item.slider.value);
+  roundRect(ctx, track.x0, cy - TRACK_H / 2, track.x1 - track.x0, TRACK_H, TRACK_H / 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.fill();
+  roundRect(ctx, track.x0, cy - TRACK_H / 2, x - track.x0, TRACK_H, TRACK_H / 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.fill();
+  if (hot) {
+    ctx.beginPath();
+    ctx.arc(at(Number(hot.slice(hot.lastIndexOf(':') + 1))), cy, KNOB / 2, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(x, cy, KNOB / 2, 0, 2 * Math.PI);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
 }
 
 export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect, groupRef, ...groupProps }) {
@@ -189,7 +250,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
       setScroll((s) => THREE.MathUtils.clamp(Math.min(s, maxScroll) + y * SCROLL_SPEED * Math.min(dt, 0.1), 0, maxScroll));
     }
   });
-  // the tallest page's height: shorter pages and the collapsed gear keep to its top edge
+  // the height with every section open: a shorter menu and the collapsed gear keep to its top edge
   const openHeight = useMemo(
     () => layout(true, Array.from({ length: Math.max(rows ?? 0, items.length) }, () => ({})), lines, panelW).height,
     [rows, items.length, lines, panelW],
@@ -215,29 +276,24 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     const redraw = () => setIconsLoaded((n) => n + 1);
     ctx.clearRect(0, 0, width, height);
 
-    if (!open) {
-      // collapsed: only the gear button, styled like the windowed one
-      const r = rects[0];
-      const hot = hovered === MENU_TOGGLE;
-      roundRect(ctx, r.x + 2, r.y + 2, r.w - 4, r.h - 4, 34);
-      ctx.fillStyle = hot ? 'rgba(40, 46, 66, 0.95)' : 'rgba(12, 16, 28, 0.9)';
-      ctx.fill();
-      ctx.strokeStyle = hot ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.18)';
-      ctx.lineWidth = hot ? 4 : 3;
-      ctx.stroke();
-      const img = iconImage('gear', redraw);
-      const size = r.w * (18 / 44);
-      if (img.complete && img.naturalWidth) ctx.drawImage(img, r.x + (r.w - size) / 2, r.y + (r.h - size) / 2, size, size);
-      texture.needsUpdate = true;
-      return;
-    }
-
     roundRect(ctx, 4, 4, width - 8, height - 8, 40);
     ctx.fillStyle = 'rgba(12, 16, 28, 0.9)';
     ctx.fill();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
     ctx.lineWidth = 4;
     ctx.stroke();
+
+    // the gear button, top left, in the title row: collapses and expands the panel
+    const toggle = rects[0];
+    drawButtonFrame(ctx, toggle, { hot: hovered === MENU_TOGGLE });
+    const gear = iconImage('gear', redraw);
+    const gearSize = toggle.w * 0.5;
+    if (gear.complete && gear.naturalWidth)
+      ctx.drawImage(gear, toggle.x + (toggle.w - gearSize) / 2, toggle.y + (toggle.h - gearSize) / 2, gearSize, gearSize);
+    if (!open) {
+      texture.needsUpdate = true;
+      return;
+    }
 
     ctx.textAlign = 'left';
     ctx.fillStyle = '#ffffff';
@@ -247,18 +303,6 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     ctx.font = `400 26px ${FONT}`;
     statusLines.forEach((line, i) => centredText(ctx, fit(ctx, line, width - 2 * PAD), PAD, TITLE_Y + 34 + LINE_H / 2 + i * LINE_H));
 
-    // collapse arrow, top left, in the title row
-    const toggle = rects[0];
-    drawButtonFrame(ctx, toggle, { hot: hovered === MENU_TOGGLE });
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 6;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(toggle.x + toggle.w * 0.32, toggle.y + toggle.h * 0.58);
-    ctx.lineTo(toggle.x + toggle.w * 0.5, toggle.y + toggle.h * 0.4);
-    ctx.lineTo(toggle.x + toggle.w * 0.68, toggle.y + toggle.h * 0.58);
-    ctx.stroke();
 
     // the buttons, scrolled and clipped below the title
     ctx.save();
@@ -269,8 +313,9 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     for (const r of rects) {
       if (r.id === MENU_TOGGLE) continue;
       if (r.option) {
-        // a choice in an open dropdown: smaller, the current one lit and ticked
+        // a choice in an open dropdown: smaller, the current one lit and ticked, one this device can't use dimmed
         const { option } = r;
+        ctx.globalAlpha = option.disabled ? 0.4 : 1;
         roundRect(ctx, r.x, r.y, r.w, r.h, 14);
         const hot = option.id === hovered;
         ctx.fillStyle = hot ? 'rgba(255, 255, 255, 0.24)' : option.selected ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.05)';
@@ -292,9 +337,14 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
           const check = iconImage('check', redraw);
           if (check.complete && check.naturalWidth) ctx.drawImage(check, r.x + r.w - INSET - CHECK, r.y + (r.h - CHECK) / 2, CHECK, CHECK);
         }
+        ctx.globalAlpha = 1;
         continue;
       }
       const { item } = r;
+      if (item.slider) {
+        drawSlider(ctx, r, hovered?.startsWith(`${SET_PREFIX}${item.id}:`) ? hovered : null, redraw);
+        continue;
+      }
       drawButtonFrame(ctx, r, { hot: item.id === hovered && !item.disabled, disabled: item.disabled });
       ctx.globalAlpha = item.disabled ? 0.4 : 1;
       const img = iconImage(item.icon, redraw);
@@ -348,9 +398,12 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     if (open && (py < clipTop || py > clipBottom)) return null;
     if (open) py += scrolled;
     const r = rects.find(inside);
-    return r && !r.item?.disabled ? r.id : null;
+    if (r?.track) return sliderKey(r, px);
+    return r && !r.item?.disabled && !r.option?.disabled ? r.id : null;
   };
-  useGazeTarget(mesh, onSelect, setGazeKey, pick);
+  // the gear, sections and dropdowns open and close: a stare fires them once
+  const toggles = (key) => key === MENU_TOGGLE || key.startsWith(SECTION_PREFIX) || Boolean(rects.find((r) => r.id === key)?.item?.dropdown);
+  useGazeTarget(mesh, onSelect, setGazeKey, pick, toggles);
 
   return (
     <group ref={groupRef} {...groupProps}>

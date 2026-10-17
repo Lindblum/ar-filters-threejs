@@ -70,6 +70,12 @@ export class CardboardLens {
    * to scale; more stretches a narrower camera image to fill the viewer.
    */
   zoom = 1;
+  /**
+   * Where the eyes' views meet, in dioptres (1 / metres). 0: parallel, at
+   * infinity, true to life. Otherwise each eye's frustum shifts toward the
+   * nose so a point that far straight ahead lands on both lens centres.
+   */
+  convergence = 0;
 
   constructor() {
     this.target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: true });
@@ -161,8 +167,10 @@ export class CardboardLens {
     eye.matrixWorldInverse.copy(eye.matrixWorld).invert();
     const { outer, inner, down, up } = this.tangents;
     const z = near / this.zoom;
-    const left = index === 0 ? outer : inner;
-    const right = index === 0 ? inner : outer;
+    // the convergence point, straight ahead of the head, as a tangent from this eye
+    const shift = (-side * VIEWER.interLensDistance * this.ipdScale * this.convergence) / 2;
+    const left = (index === 0 ? outer : inner) - shift;
+    const right = (index === 0 ? inner : outer) + shift;
     eye.projectionMatrix.makePerspective(-left * z, right * z, up * z, -down * z, near, far);
     eye.projectionMatrixInverse.copy(eye.projectionMatrix).invert();
   }

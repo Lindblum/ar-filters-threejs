@@ -210,7 +210,7 @@ export default function Scene({ state, menu, phone, testFeed }) {
       )}
       {state.view === 'sbs' && !immersive && <SideBySide />}
       {state.view === 'interlaced' && !immersive && <Interlaced />}
-      {phoneStereo && <PhoneStereoXR strength={state.strength} stretch={state.periphery === 'stretch'} />}
+      {phoneStereo && <PhoneStereoXR strength={state.strength} convergence={state.convergence} stretch={state.periphery === 'stretch'} />}
       {!inSession && <FloorGrid />}
       <DepthSource mode={state.depthMode} smoothing={state.smoothing} video={testFeed} />
       <Player origin={origin} menu={menuPanel}>

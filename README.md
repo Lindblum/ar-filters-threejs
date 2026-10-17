@@ -21,14 +21,14 @@ The depth becomes a surface in the room, coloured with the live camera image, so
 - **Video → View Mode → XR: Phone Viewer** for stereo in a viewer, or **XR: Phone AR** for one view.
 - **Video → Filter**: Grayscale, Sepia, Invert, Posterize, Edges, Cartoon, Night Vision, Thermal, and three that need depth: Depth Colours, Depth Fog, Depth Outlines. `F` cycles them on a desktop.
 - **Video → Periphery**: what the viewer shows beyond the camera's narrower view: Black, Outfill (the image's edges carried out, blurred), or Stretch (the image magnified to fill; turning then moves it a little fast).
-- **Depth → Source**, the depth algorithm:
+- **Depth → Algorithm**, how depth is made:
   - **Auto**: ARCore's depth, sharpened by Depth Anything V2 while it keeps up.
   - **ARCore**: ARCore's depth alone.
   - **Depth Anything V2 / V3, MiDaS**: depth models on the camera image (50 / 105 / 66 MB, downloaded once). Their depth is relative, so it's scaled to metres against ARCore's depth, or hit tests on surfaces, or an assumed range.
   - **Scene Cues**: lower, brighter, more saturated and more central reads as nearer. Instant, rough.
   - **Ground Plane**: every ray meets the floor. Metric, but only right for the floor.
-  - **Motion Parallax**: points tracked between camera frames and triangulated with ARCore's known camera movement, like ARCore's own depth. Move the phone a few centimetres sideways. (On the desktop test feed, with no camera movement known, it reads depth from how far points move, as WiFi Camera Link does.) **Smoothing** averages depth over recent frames; real changes come through at once.
-- **Depth → Depth Passthrough** off shows the camera image flat, at the scene's typical distance. **Stereo Strength** scales the eye separation (1× is true to scale).
+  - **Motion Parallax**: points tracked between camera frames and triangulated with ARCore's known camera movement, like ARCore's own depth. Move the phone a few centimetres sideways. (On the desktop test feed, with no camera movement known, it reads depth from how far points move, as WiFi Camera Link does.) The **Smoothing** slider averages depth over recent frames (0 is off); real changes come through at once.
+- **Depth → 2D-3D** turns the camera image into 3D from its depth; off shows it flat, at the scene's typical distance. The **3D Strength** slider scales the eye separation from 0 to 3× (1× is true to scale). **Convergence** sets where the eyes meet, from ∞ (true to life) in to 0.5 m.
 - On a desktop, **Video → Background → Test Feed** runs the depth model on your webcam, or on a video file dropped on the page.
 
 The model (50 MB) downloads from Hugging Face on first use and is cached by the browser.

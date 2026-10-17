@@ -70,15 +70,17 @@ function stretchZoom(lens) {
 
 /**
  * `strength`: the eyes' separation, times the viewer's lens spacing (1: true
- * to scale). `stretch`: magnify both eyes alike until the camera image fills
+ * to scale). `convergence`: where the eyes meet, in dioptres (0: parallel,
+ * at infinity). `stretch`: magnify both eyes alike until the camera image fills
  * them (see stretchZoom); otherwise everything is true to scale and the
  * depth passthrough's dome handles the periphery.
  */
-export function PhoneStereoXR({ strength = 1, stretch = false }) {
+export function PhoneStereoXR({ strength = 1, convergence = 0, stretch = false }) {
   const gl = useThree((s) => s.gl);
   const lens = useMemo(() => new CardboardLens(), []);
   useEffect(() => () => lens.dispose(), [lens]);
   lens.ipdScale = strength;
+  lens.convergence = convergence;
   const stretchRef = useRef(stretch);
   stretchRef.current = stretch;
 

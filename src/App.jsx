@@ -18,13 +18,16 @@ import {
   XR_VIEWS,
   MENU_ROWS,
   availableViews,
-  PAGE_PREFIX,
+  SECTION_PREFIX,
+  SET_PREFIX,
+  SLIDERS,
   PICK_PREFIX,
   cycle,
   menuItems,
-  menuTitle,
+  MENU_TITLE,
   dropdownChoices,
   possibleLabels,
+  unavailableReason,
   splitLabel,
 } from './menu.js';
 
@@ -87,13 +90,14 @@ const describe = (e) => `${e?.name ?? 'Error'}${e?.message ? ` - ${e.message}` :
 function useAppState() {
   const [depthMode, setDepthMode] = useState('auto'); // see depth/DepthSource.jsx
   const [depthMesh, setDepthMesh] = useState(true); // the camera drawn at its depth, not flat
-  const [smoothing, setSmoothing] = useState('medium'); // see depth/smooth.js
+  const [smoothing, setSmoothing] = useState(0.5); // how much of the past goes into each depth frame, see depth/smooth.js
+  const [convergence, setConvergence] = useState(0); // where the phone viewer's eyes meet, dioptres (0: ∞)
   const [strength, setStrength] = useState(1); // the phone viewer's eye separation, times true scale
   const [periphery, setPeriphery] = useState('outfill'); // the phone viewer beyond the camera: 'black' | 'outfill' | 'stretch'
   const [filter, setFilterName] = useState('none');
   const [background, setBackground] = useState('passthrough'); // 'solid' | 'skybox' | 'passthrough' | 'testFeed'
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
-  const [page, setPage] = useState('main'); // the submenu showing, see menu.js
+  const [sections, setSections] = useState(['depth', 'video']); // the open sections, see menu.js
   const [dropdown, setDropdown] = useState(null); // the dropdown whose list is open
 
   const actions = useMemo(
@@ -101,21 +105,23 @@ function useAppState() {
       toggle: (id) => ({ depthMesh: setDepthMesh })[id]((v) => !v),
       nextFilter: (step = 1) => setFilterName((f) => cycle(FILTERS, f, step)),
       toggleMenu: () => setMenuOpen((v) => !v),
-      setPage: (p) => {
-        setPage(p);
+      toggleSection: (id) => {
+        setSections((open) => (open.includes(id) ? open.filter((s) => s !== id) : [...open, id]));
         setDropdown(null);
       },
       toggleDropdown: (id) => setDropdown((d) => (d === id ? null : id)),
       closeDropdown: () => setDropdown(null),
+      /** A slider's new value. */
+      set: (id, value) => ({ strength: setStrength, convergence: setConvergence, smoothing: setSmoothing })[id](value),
       /** A choice from a dropdown's list (see dropdownChoices), which then closes. */
       pick: (id, choice) => {
-        ({ depthMode: setDepthMode, smoothing: setSmoothing, strength: setStrength, periphery: setPeriphery, filter: setFilterName, background: setBackground })[id](choice);
+        ({ depthMode: setDepthMode, periphery: setPeriphery, filter: setFilterName, background: setBackground })[id](choice);
         setDropdown(null);
       },
     }),
     [],
   );
-  const state = { depthMode, smoothing, depthMesh, strength, periphery, filter, background, menuOpen, page, dropdown };
+  const state = { depthMode, smoothing, convergence, depthMesh, strength, periphery, filter, background, menuOpen, sections, dropdown };
   return [state, actions];
 }
 
@@ -159,11 +165,32 @@ function Label({ text }) {
   );
 }
 
-/** What a button's right edge shows: an arrow to a submenu, or a dropdown's chevron. */
+/** What a button's right edge shows: a section's or a dropdown's chevron. */
 function trailingIcon(item) {
-  if (item.submenu) return 'forward';
-  if (item.dropdown) return item.dropdown.open ? 'dropdownOpen' : 'dropdown';
+  const open = item.section?.open ?? item.dropdown?.open;
+  if (open !== undefined) return open ? 'dropdownOpen' : 'dropdown';
   return null;
+}
+
+/** A slider row: icon, name, the track, and the value at the right edge. */
+function MenuSlider({ item, onSelect }) {
+  const { name, value } = splitLabel(item.label);
+  const { min, max, step } = item.slider;
+  return (
+    <label className={`menu-btn menu-slider${item.indent ? ' indent' : ''}`} title={item.title}>
+      <Icon name={item.icon} />
+      <span className="name">{name}:</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={item.slider.value}
+        onChange={(e) => onSelect(`${SET_PREFIX}${item.id}:${e.target.value}`)}
+      />
+      <span className="value">{value}</span>
+    </label>
+  );
 }
 
 function MenuButtons({ items, labels, onSelect }) {
@@ -171,13 +198,14 @@ function MenuButtons({ items, labels, onSelect }) {
     <div className="menu-items">
       {items.map((item) => {
         const trailing = trailingIcon(item);
+        if (item.slider) return <MenuSlider key={item.id} item={item} onSelect={onSelect} />;
         return (
           <Fragment key={item.id}>
             <button
-              className="menu-btn"
+              className={`menu-btn${item.indent ? ' indent' : ''}`}
               disabled={item.disabled}
               title={item.title}
-              aria-expanded={item.dropdown ? item.dropdown.open : undefined}
+              aria-expanded={item.section?.open ?? item.dropdown?.open}
               onClick={() => onSelect(item.id)}
             >
               <Icon name={item.icon} />
@@ -185,13 +213,15 @@ function MenuButtons({ items, labels, onSelect }) {
               {trailing && <Icon name={trailing} />}
             </button>
             {item.dropdown?.open && (
-              <div className="menu-options" role="listbox">
+              <div className={`menu-options${item.indent ? ' indent' : ''}`} role="listbox">
                 {item.dropdown.options.map((option) => (
                   <button
                     key={option.id}
                     className={`menu-option${option.selected ? ' selected' : ''}`}
                     role="option"
                     aria-selected={option.selected}
+                    disabled={option.disabled}
+                    title={option.title}
                     onClick={() => onSelect(option.id)}
                   >
                     {option.icon && <Icon name={option.icon} />}
@@ -207,7 +237,7 @@ function MenuButtons({ items, labels, onSelect }) {
       {/* invisible, zero-height copies of every possible label: they set the panel's width */}
       <div className="menu-sizer" aria-hidden="true">
         {labels.map((label) => (
-          <div key={label} className="menu-btn">
+          <div key={label} className="menu-btn indent">
             <Icon name="room" />
             <Label text={label} />
             <Icon name="dropdown" />
@@ -221,21 +251,23 @@ function MenuButtons({ items, labels, onSelect }) {
 /** The windowed panel: draws the shared menu model (see XRMenuPanel for XR). */
 function Hud({ menu, notes }) {
   const toggle = () => menu.onSelect(MENU_TOGGLE);
+  const gear = (
+    <button className="collapse" onClick={toggle} aria-label={menu.open ? 'Hide options' : 'Show options'} title="Options">
+      <Icon name="gear" />
+    </button>
+  );
   if (!menu.open) {
+    // collapsed: just the frame around the gear button
     return (
-      <button className="hud-gear" onClick={toggle} aria-label="Show options" title="Options">
-        <Icon name="gear" />
-      </button>
+      <aside className="hud collapsed">
+        <header>{gear}</header>
+      </aside>
     );
   }
   return (
     <aside className="hud">
       <header>
-        <button className="collapse" onClick={toggle} aria-label="Hide options">
-          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-            <path d="M3 9l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
+        {gear}
         <h1>{menu.title}</h1>
       </header>
 
@@ -381,15 +413,18 @@ export default function App() {
 
   const onSelect = (id) => {
     if (id === MENU_TOGGLE) actions.toggleMenu();
-    else if (id.startsWith(PAGE_PREFIX)) actions.setPage(id.slice(PAGE_PREFIX.length));
+    else if (id.startsWith(SECTION_PREFIX)) actions.toggleSection(id.slice(SECTION_PREFIX.length));
     else if (id.startsWith(PICK_PREFIX)) {
       const [dropdownId, index] = id.slice(PICK_PREFIX.length).split(':');
-      const choice = dropdownChoices(env)[dropdownId]?.[Number(index)];
-      if (choice === undefined) return;
+      const choice = dropdownChoices()[dropdownId]?.[Number(index)];
+      if (choice === undefined || unavailableReason(env, dropdownId, choice)) return;
       if (dropdownId === 'view') {
         actions.closeDropdown();
         selectView(choice);
       } else actions.pick(dropdownId, choice);
+    } else if (id.startsWith(SET_PREFIX)) {
+      const [sliderId, value] = id.slice(SET_PREFIX.length).split(':');
+      if (SLIDERS.includes(sliderId) && Number.isFinite(Number(value))) actions.set(sliderId, Number(value));
     } else if (DROPDOWNS.includes(id)) actions.toggleDropdown(id);
     else if (TOGGLES.includes(id)) actions.toggle(id);
   };
@@ -420,13 +455,13 @@ export default function App() {
     depthActive: (sessionActive && sessionMode === 'immersive-ar') || Boolean(testFeed.video),
     depthMode: state.depthMode,
   });
-  const env = { xrSupported, passthroughAvailable, testFeedAvailable, checking: !support.checked, views };
+  const env = { xrSupported, passthroughAvailable, testFeedAvailable, checking: !support.checked, phone, views };
   const labels = useMemo(
     () => possibleLabels({ xrSupported, passthroughAvailable, testFeedAvailable, views }),
     [xrSupported, passthroughAvailable, testFeedAvailable, views],
   );
   const menu = {
-    title: menuTitle(state.page),
+    title: MENU_TITLE,
     rows: MENU_ROWS,
     labels,
     status,

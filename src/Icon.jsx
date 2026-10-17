@@ -1,7 +1,5 @@
 import download from 'lineicons/assets/svgs/regular/download-1.svg?raw';
 import trash from 'lineicons/assets/svgs/regular/trash-3.svg?raw';
-import arrowLeft from 'lineicons/assets/svgs/regular/arrow-left.svg?raw';
-import arrowRight from 'lineicons/assets/svgs/regular/arrow-right.svg?raw';
 import chevronDown from 'lineicons/assets/svgs/regular/chevron-down.svg?raw';
 import chevronUp from 'lineicons/assets/svgs/regular/chevron-up.svg?raw';
 import check from 'lineicons/assets/svgs/regular/check.svg?raw';
@@ -9,6 +7,7 @@ import gear from 'lineicons/assets/svgs/regular/gear-1.svg?raw';
 import picture from 'lineicons/assets/svgs/regular/gallery.svg?raw';
 import globe from 'lineicons/assets/svgs/regular/globe-1.svg?raw';
 import camera from 'lineicons/assets/svgs/regular/camera-1.svg?raw';
+import flowchart from 'lineicons/assets/svgs/regular/vector-nodes-7.svg?raw';
 import eye from 'lineicons/assets/svgs/regular/eye.svg?raw';
 import palette from 'lineicons/assets/svgs/regular/colour-palette-3.svg?raw';
 import layers from 'lineicons/assets/svgs/regular/layers-1.svg?raw';
@@ -81,6 +80,18 @@ const mesh = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none
 <path d="M7.5 5 12 19.5l1.5-11 7.5 11M3 19.5l10.5-11" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round" stroke-opacity="0.65"/>
 </svg>`;
 
+// Convergence: two sight lines meeting at a point
+const convergence = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M3.5 5.5 18 12 3.5 18.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="19.5" cy="12" r="2" fill="currentColor"/>
+</svg>`;
+
+// Smoothing: a jagged line, and the smooth curve through it
+const smoothing = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M2.5 14 5 9l2.5 7L10 7l2.5 9 2.5-8 2.5 7L20 9l1.5 4" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round" stroke-opacity="0.45"/>
+<path d="M2.5 13c3-2.5 5-2.5 9.5 0s6.5 2.5 9.5 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`;
+
 // Points: a scatter of dots, for the point cloud
 const points = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
 <circle cx="4.5" cy="17" r="1.6" fill="currentColor"/>
@@ -94,17 +105,18 @@ const points = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="no
 const ICONS = {
   layers: recolour(layers),
   camera: recolour(camera),
+  // Depth → Algorithm: a flowchart
+  algorithm: recolour(flowchart),
   eye: recolour(eye),
   filter: recolour(palette),
   mesh,
   points,
+  convergence,
+  smoothing,
   download: recolour(download),
   clear: recolour(trash),
   video,
-  // Back, and its mirror marking a button that opens a submenu
-  back: recolour(arrowLeft),
-  forward: recolour(arrowRight),
-  // a dropdown, closed and open, and the chosen option in its list
+  // a section or dropdown, closed and open, and the chosen option in its list
   dropdown: recolour(chevronDown),
   dropdownOpen: recolour(chevronUp),
   check: recolour(check),

@@ -7,6 +7,10 @@ import * as THREE from 'three';
 // a ring while the timer runs; elsewhere it hides, out of the way of the view.
 
 const DWELL_SECONDS = 1;
+// A control that opens or closes something (`toggles`) fires once per look:
+// it re-arms only after the gaze has been off it this long, so the panel
+// re-laying out under a steady stare can't open and close it again and again.
+const REARM_SECONDS = 0.6;
 const RETICLE_SIZE = 0.035; // outer ring radius per metre of distance (~2°): constant on-screen size
 const RING_SEGMENTS = 48;
 
@@ -17,11 +21,12 @@ const targets = new Set();
  * `pick(intersection)`, returning the control's key under the gaze (or null);
  * the dwell restarts whenever that key changes. `onGaze(key | null)` reports
  * focus so the control can highlight; `onActivate(key)` fires after the dwell.
- * Single controls omit `pick` and get `true` as their key.
+ * Single controls omit `pick` and get `true` as their key. `toggles(key)`:
+ * true for a control that opens or closes something (see REARM_SECONDS).
  */
-export function useGazeTarget(ref, onActivate, onGaze, pick) {
-  const handlers = useRef({ onActivate, onGaze, pick });
-  handlers.current = { onActivate, onGaze, pick };
+export function useGazeTarget(ref, onActivate, onGaze, pick, toggles) {
+  const handlers = useRef({ onActivate, onGaze, pick, toggles });
+  handlers.current = { onActivate, onGaze, pick, toggles };
   const enabled = Boolean(onActivate);
   useEffect(() => {
     const object = ref.current;
@@ -31,6 +36,7 @@ export function useGazeTarget(ref, onActivate, onGaze, pick) {
       pick: (hit) => (handlers.current.pick ? handlers.current.pick(hit) : true),
       activate: (key) => handlers.current.onActivate?.(key),
       focus: (key) => handlers.current.onGaze?.(key),
+      toggles: (key) => Boolean(handlers.current.toggles?.(key)),
     };
     targets.add(target);
     return () => {
@@ -53,6 +59,8 @@ export function GazeReticle() {
     [],
   );
   const dwell = useRef({ target: null, key: null, elapsed: 0, fired: false });
+  // the toggle that last fired, until the gaze has been off it for REARM_SECONDS
+  const spent = useRef(null);
 
   useEffect(
     () => () => {
@@ -83,15 +91,23 @@ export function GazeReticle() {
       hitKey = key;
     }
 
+    const used = spent.current;
+    if (used) {
+      used.away = used.target === hitTarget && used.key === hitKey ? 0 : used.away + Math.min(dt, 0.1);
+      if (used.away >= REARM_SECONDS) spent.current = null;
+    }
+    const isSpent = (target, key) => spent.current?.target === target && spent.current.key === key;
+
     const state = dwell.current;
     if (hitTarget !== state.target || hitKey !== state.key) {
       if (hitTarget !== state.target) state.target?.focus(null);
       hitTarget?.focus(hitKey);
-      Object.assign(state, { target: hitTarget, key: hitKey, elapsed: 0, fired: false });
+      Object.assign(state, { target: hitTarget, key: hitKey, elapsed: 0, fired: isSpent(hitTarget, hitKey) });
     } else if (hitTarget && !state.fired) {
       state.elapsed += Math.min(dt, 0.1);
       if (state.elapsed >= DWELL_SECONDS) {
         state.fired = true; // look away to re-arm, so a stare doesn't repeat
+        if (hitTarget.toggles(hitKey)) spent.current = { target: hitTarget, key: hitKey, away: 0 };
         hitTarget.activate(hitKey);
       }
     }

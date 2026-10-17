@@ -12,7 +12,7 @@ import { applyFit, assumedFit, blendFit, fitInverseDepth, fuseDepth, valueRange 
 import { smoothFrame } from './smooth.js';
 import { getDepthStatus, liveCamera, setDepthFrame, setDepthStatus } from './store.js';
 
-// Makes depth frames (see grid.js) with the chosen algorithm (Depth → Source):
+// Makes depth frames (see grid.js) with the chosen algorithm (Depth → Algorithm):
 //   auto: ARCore's depth (WebXR depth-sensing), metric but coarse, sharpened
 //     by Depth Anything V2 while the model keeps up;
 //   arcore: ARCore's depth alone;
@@ -104,10 +104,10 @@ function arcoreOnly(depth, color, width, height) {
 const freshRun = () => ({ last: -Infinity, busy: false, fit: null, mlRuns: 0, mlMs: 0, mlSlow: false, smoothed: null });
 
 /**
- * `mode`: see the top of this file. `smoothing`: 'off' | 'low' | 'medium' |
- * 'high' (see smooth.js). `video`: the desktop test feed's <video>, or null.
+ * `mode`: see the top of this file. `smoothing`: 0 (off) to 1 (see
+ * smooth.js). `video`: the desktop test feed's <video>, or null.
  */
-export function DepthSource({ mode, smoothing = 'medium', video }) {
+export function DepthSource({ mode, smoothing = 0.5, video }) {
   const gl = useThree((s) => s.gl);
   const capture = useMemo(() => new CameraCapture(), []);
   useEffect(() => () => capture.dispose(), [capture]);

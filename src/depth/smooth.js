@@ -16,8 +16,12 @@ import { unprojectFrame } from './grid.js';
 // the model's sigma is mostly its uncertain scale, which is the same error
 // frame after frame, so as independent noise it would freeze the depth.
 
-/** How much of each new frame goes in, per level (1: none of the past). */
-export const SMOOTHING_LEVELS = { off: 1, low: 0.6, medium: 0.35, high: 0.18 };
+/**
+ * How much of each new frame goes in at smoothing `amount` (0..1): all of
+ * it at 0, MIN_ALPHA at 1, evenly in log between (0.5 is about a third).
+ */
+const MIN_ALPHA = 0.1;
+export const smoothingAlpha = (amount) => MIN_ALPHA ** Math.min(Math.max(amount, 0), 1);
 const JUMP = 0.15; // relative depth change that counts as a real change
 const MAX_AGE = 6; // frames a cell's depth is carried without a new measurement
 const AGE_SIGMA = 1.25; // and how much less sure it gets each frame
@@ -70,9 +74,9 @@ export function reproject(prev, next) {
   return { depth: filled, sigma: filledSigma, age: filledAge };
 }
 
-/** `next` blended with `prev` (the last smoothed frame) at `level` (see SMOOTHING_LEVELS). */
-export function smoothFrame(prev, next, level) {
-  const alpha = SMOOTHING_LEVELS[level] ?? 1;
+/** `next` blended with `prev` (the last smoothed frame) at smoothing `amount`, 0..1 (see smoothingAlpha). */
+export function smoothFrame(prev, next, amount) {
+  const alpha = smoothingAlpha(amount);
   if (!prev || alpha >= 1) return next;
   const past = reproject(prev, next);
   const depth = next.depth.slice();
