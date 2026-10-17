@@ -210,8 +210,9 @@ export default function Scene({ state, menu, phone, testFeed }) {
       )}
       {state.view === 'sbs' && !immersive && <SideBySide />}
       {state.view === 'interlaced' && !immersive && <Interlaced />}
-      {phoneStereo && <PhoneStereoXR strength={state.strength} />}
-      {phone && inAR && state.passthrough && (
+      {phoneStereo && <PhoneStereoXR strength={state.strength} fill={state.fov === 'fill'} />}
+      {/* the flat camera image, when the depth passthrough (which has its own backdrop) is off */}
+      {phone && inAR && state.passthrough && !depthPassthrough && (
         <PhoneStereoCameraFeed
           stereo={phoneStereo}
           onUnavailable={(reason) =>

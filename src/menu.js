@@ -111,8 +111,16 @@ const DEPTH_MODE_LABELS = { auto: 'Auto', arcore: 'ARCore', ml: 'ML Model', off:
 export const STRENGTHS = [0, 0.5, 1, 1.5, 2, 3];
 const strengthLabel = (s) => `${s}×`;
 
+/**
+ * Depth → Field of View in the phone viewer: Fill magnifies both eyes alike
+ * until the camera image fills them; True keeps everything to scale, which
+ * leaves the camera's narrower view as a window in the middle.
+ */
+export const FOVS = ['fill', 'true'];
+const FOV_LABELS = { fill: 'Fill', true: 'True' };
+
 /** The dropdowns' ids. */
-export const DROPDOWNS = ['depthMode', 'strength', 'filter', 'background', 'view'];
+export const DROPDOWNS = ['depthMode', 'strength', 'fov', 'filter', 'background', 'view'];
 
 /** The on / off settings, by button id. */
 export const TOGGLES = ['depthMesh'];
@@ -128,6 +136,7 @@ export function dropdownChoices(env) {
   return {
     depthMode: DEPTH_MODES,
     strength: STRENGTHS,
+    fov: FOVS,
     filter: FILTERS,
     background: availableBackgrounds(env),
     view: env.views ?? ['normal'],
@@ -157,6 +166,13 @@ function depthItems(state) {
       icon: 'eye',
       title: "The eyes' separation in the phone viewer: 1× is true to scale, more exaggerates depth",
       dropdown: dropdown(state, 'strength', STRENGTHS.map(strengthLabel), STRENGTHS.indexOf(state.strength)),
+    },
+    {
+      id: 'fov',
+      label: `Field of View: ${FOV_LABELS[state.fov]}`,
+      icon: 'phoneViewer',
+      title: "Fill: the camera image fills the viewer, magnified (turning moves it a little fast). True: exact scale, the camera's view a window in the middle",
+      dropdown: dropdown(state, 'fov', FOVS.map((f) => FOV_LABELS[f]), FOVS.indexOf(state.fov)),
     },
   ];
 }
@@ -226,7 +242,7 @@ export function menuItems(state, env) {
 }
 
 /** The most buttons any page has, so the XR panel can keep its top edge still when the page changes. */
-const SAMPLE_STATE = { depthMode: DEPTH_MODES[0], strength: STRENGTHS[2], filter: FILTERS[0], background: 'solid', view: 'normal' };
+const SAMPLE_STATE = { depthMode: DEPTH_MODES[0], strength: STRENGTHS[2], fov: FOVS[0], filter: FILTERS[0], background: 'solid', view: 'normal' };
 export const MENU_ROWS = 1 + Math.max(depthItems(SAMPLE_STATE).length, videoItems(SAMPLE_STATE, {}).length);
 
 /**
@@ -240,6 +256,7 @@ export function possibleLabels(env) {
   const variants = [
     ...DEPTH_MODES.map((depthMode) => ({ depthMode })),
     ...STRENGTHS.map((strength) => ({ strength })),
+    ...FOVS.map((fov) => ({ fov })),
     ...FILTERS.map((filter) => ({ filter })),
     ...BACKGROUNDS.map((background) => ({ background })),
     ...VIEWS.map((view) => ({ view })),

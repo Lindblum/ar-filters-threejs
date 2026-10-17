@@ -64,6 +64,12 @@ const _offset = new THREE.Matrix4();
 export class CardboardLens {
   /** The eyes' separation, times the lens spacing: 1 is true to scale, more exaggerates depth. */
   ipdScale = 1;
+  /**
+   * Magnification: each eye renders a field of view this many times
+   * narrower, which the lens pass spreads over the whole lens. 1 is true
+   * to scale; more lets a narrower camera image fill the viewer.
+   */
+  zoom = 1;
 
   constructor() {
     this.target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: true });
@@ -154,9 +160,10 @@ export class CardboardLens {
     eye.matrixWorld.copy(eye.matrix);
     eye.matrixWorldInverse.copy(eye.matrixWorld).invert();
     const { outer, inner, down, up } = this.tangents;
+    const z = near / this.zoom;
     const left = index === 0 ? outer : inner;
     const right = index === 0 ? inner : outer;
-    eye.projectionMatrix.makePerspective(-left * near, right * near, up * near, -down * near, near, far);
+    eye.projectionMatrix.makePerspective(-left * z, right * z, up * z, -down * z, near, far);
     eye.projectionMatrixInverse.copy(eye.projectionMatrix).invert();
   }
 

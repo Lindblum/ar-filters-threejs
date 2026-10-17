@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { CardboardLens } from './CardboardLens.js';
 import { DEPTH_SENSING_INIT } from './depth/arcore.js';
+import { liveCamera } from './depth/store.js';
 import { FILTER_GLSL, filterUniforms } from './filters.js';
 
 // Stereo on top of a phone's WebXR AR session. ARCore supplies full 6DoF
@@ -53,12 +54,33 @@ export const PHONE_AR_SESSION_INIT = {
   depthSensing: DEPTH_SENSING_INIT,
 };
 
-/** `strength`: the eyes' separation, times the viewer's lens spacing (1: true to scale). */
-export function PhoneStereoXR({ strength = 1 }) {
+/**
+ * How much to magnify the eyes so the camera's view fills them. A phone
+ * camera sees far less than a viewer's lenses show (roughly 65° against
+ * 100°), so at true scale its image is a window in the middle of each eye.
+ * Its long side runs across the eyes (the viewer holds the phone sideways).
+ */
+function fillZoom(lens) {
+  const p = liveCamera.projection.elements;
+  if (!liveCamera.texture || !p[0] || !p[5]) return 1;
+  const across = Math.max(1 / p[0], 1 / p[5]); // the camera's half-extents, in tangent units
+  const along = Math.min(1 / p[0], 1 / p[5]);
+  const { outer, inner, down, up } = lens.tangents;
+  return Math.max(1, (outer + inner) / 2 / across, (up + down) / 2 / along);
+}
+
+/**
+ * `strength`: the eyes' separation, times the viewer's lens spacing (1: true
+ * to scale). `fill`: magnify both eyes alike until the camera image fills
+ * them (see fillZoom); otherwise everything is true to scale.
+ */
+export function PhoneStereoXR({ strength = 1, fill = false }) {
   const gl = useThree((s) => s.gl);
   const lens = useMemo(() => new CardboardLens(), []);
   useEffect(() => () => lens.dispose(), [lens]);
   lens.ipdScale = strength;
+  const fillRef = useRef(fill);
+  fillRef.current = fill;
 
   // Render the two eyes (via the camera override below) into an offscreen
   // image the size of the XR framebuffer, then draw it through the lens warp
@@ -68,6 +90,7 @@ export function PhoneStereoXR({ strength = 1 }) {
     if (!xrTarget) return;
     updateLayout(gl, xrTarget.width, xrTarget.height);
     lens.setLayout(layout.width, layout.height, layout.rotation);
+    lens.zoom = fillRef.current ? fillZoom(lens) : 1;
     gl.setRenderTarget(lens.target);
     gl.render(scene, camera);
     // a plain full-screen pass: keep three from substituting the XR camera
