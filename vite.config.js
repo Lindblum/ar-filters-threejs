@@ -27,6 +27,9 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), stubXrEmulator, ...(mode === 'xr' ? [basicSsl()] : [])],
     base: BASE,
     resolve: { dedupe: ['three'] },
+    worker: { format: 'es' },
+    // onnxruntime finds its .wasm next to its own module (import.meta.url), which pre-bundling would move
+    optimizeDeps: { exclude: ['onnxruntime-web'] },
     server: {
       host: mode === 'xr' ? true : 'localhost', port: 5175, allowedHosts: env.NGROK_HOST ? [env.NGROK_HOST] : [],
     },

@@ -4,19 +4,29 @@
 // on its right), or opens a dropdown list of choices beneath it (a chevron
 // on its right).
 
-import { BOX_LABELS, SCAN_MODES } from './scan.js';
+import { FILTERS, FILTER_LABELS } from './filters.js';
 
-export const MENU_TITLE = 'Room Mesh';
+export const MENU_TITLE = 'Depth XR';
 
-/** Options → Background, in list order (passthrough last). */
-export const BACKGROUNDS = ['solid', 'skybox', 'passthrough'];
-const BACKGROUND_LABELS = { solid: 'Solid', skybox: 'Skybox', passthrough: 'Passthrough (XR Only)' };
+/** Video → Background, in list order (passthrough, then the desktop's test feed, last). */
+export const BACKGROUNDS = ['solid', 'skybox', 'passthrough', 'testFeed'];
+const BACKGROUND_LABELS = {
+  solid: 'Solid',
+  skybox: 'Skybox',
+  passthrough: 'Passthrough (XR Only)',
+  testFeed: 'Test Feed (Webcam)',
+};
+const BACKGROUND_ICONS = { solid: 'solid', skybox: 'skybox', passthrough: 'passthrough', testFeed: 'camera' };
 
 /** The Vite + React starter's page colour, used for the Solid background, as in the 4D viewer. */
 export const SOLID_BACKGROUND = '#242424';
 
-/** The backgrounds this device can show: passthrough only where there is AR. */
-export const availableBackgrounds = (env) => BACKGROUNDS.filter((b) => b !== 'passthrough' || env.passthroughAvailable);
+/**
+ * The backgrounds this device can show: passthrough only where there is
+ * AR, the test feed only on desktops (it stands in for a phone's camera).
+ */
+export const availableBackgrounds = (env) =>
+  BACKGROUNDS.filter((b) => (b === 'passthrough' ? env.passthroughAvailable : b === 'testFeed' ? env.testFeedAvailable : true));
 
 /**
  * View Mode, in list order. Normal, 3D: SBS (half side-by-side, for 3D
@@ -73,8 +83,8 @@ export function splitLabel(label) {
 }
 
 /** Submenus. The top page links to each; each starts with a Back button. */
-export const PAGES = ['main', 'room', 'scan', 'video'];
-const PAGE_TITLES = { main: MENU_TITLE, room: 'Room', scan: 'Scan', video: 'Video' };
+export const PAGES = ['main', 'depth', 'video'];
+const PAGE_TITLES = { main: MENU_TITLE, depth: 'Depth', video: 'Video' };
 export const PAGE_PREFIX = 'page:';
 
 export const menuTitle = (page) => PAGE_TITLES[page];
@@ -93,27 +103,22 @@ function dropdown(state, id, choices, current, icons) {
   };
 }
 
-/** Room → Style: how the room's surfaces are drawn. */
-export const STYLES = ['wireframe', 'solid', 'occlusion'];
-const STYLE_LABELS = { wireframe: 'Wireframe', solid: 'Solid', occlusion: 'Occlusion' };
+/** Depth → Source: where depth comes from (see depth/DepthSource.jsx). */
+export const DEPTH_MODES = ['auto', 'arcore', 'ml', 'off'];
+const DEPTH_MODE_LABELS = { auto: 'Auto', arcore: 'ARCore', ml: 'ML Model', off: 'Off' };
 
-/** Room → Cell Size: the obstacle map's resolution, in metres. */
-export const CELL_SIZES = [0.05, 0.1, 0.2];
-const cellLabel = (m) => `${Math.round(m * 100)} cm`;
-
-/** Scan → Mode: what the controller's tip records (see scan.js). */
-const SCAN_MODE_LABELS = { off: 'Off', points: 'Points', walls: 'Walls', box: 'Box' };
-const SCAN_MODE_ICONS = { off: 'probe', points: 'points', walls: 'planes', box: 'box' };
-const capitalise = (s) => s[0].toUpperCase() + s.slice(1);
+/** Depth → Stereo Strength: the eyes' separation, times true scale. */
+export const STRENGTHS = [0, 0.5, 1, 1.5, 2, 3];
+const strengthLabel = (s) => `${s}×`;
 
 /** The dropdowns' ids. */
-export const DROPDOWNS = ['style', 'cell', 'scanMode', 'scanLabel', 'background', 'view'];
+export const DROPDOWNS = ['depthMode', 'strength', 'filter', 'background', 'view'];
 
 /** The on / off settings, by button id. */
-export const TOGGLES = ['planes', 'meshes', 'obstacles', 'scans'];
+export const TOGGLES = ['depthMesh'];
 
 /** One-shot actions, by button id. */
-export const ACTIONS = ['roomCapture', 'export', 'clear', 'scanBuild', 'scanUndo', 'scanCalibrate', 'scanClear'];
+export const ACTIONS = [];
 
 /**
  * The choices behind each dropdown on this device, in list order. App
@@ -121,10 +126,9 @@ export const ACTIONS = ['roomCapture', 'export', 'clear', 'scanBuild', 'scanUndo
  */
 export function dropdownChoices(env) {
   return {
-    style: STYLES,
-    cell: CELL_SIZES,
-    scanMode: SCAN_MODES,
-    scanLabel: BOX_LABELS,
+    depthMode: DEPTH_MODES,
+    strength: STRENGTHS,
+    filter: FILTERS,
     background: availableBackgrounds(env),
     view: env.views ?? ['normal'],
   };
@@ -132,79 +136,28 @@ export function dropdownChoices(env) {
 
 const onOff = (on) => (on ? 'On' : 'Off');
 
-/**
- * `env.roomCapture`: the session can open the headset's Space Setup;
- * `env.hasRoom`: there is a room to export or clear.
- */
-function roomItems(state, env) {
-  return [
-    { id: 'planes', label: `Planes: ${onOff(state.planes)}`, icon: 'planes', title: 'Shortcut: P' },
-    { id: 'meshes', label: `Meshes: ${onOff(state.meshes)}`, icon: 'mesh', title: 'Shortcut: M' },
-    {
-      id: 'style',
-      label: `Style: ${STYLE_LABELS[state.style]}`,
-      icon: 'style',
-      title: 'Shortcut: Y. Occlusion hides the surfaces but lets them hide virtual things behind them',
-      dropdown: dropdown(state, 'style', STYLES.map((s) => STYLE_LABELS[s]), STYLES.indexOf(state.style)),
-    },
-    { id: 'obstacles', label: `Obstacle Map: ${onOff(state.obstacles)}`, icon: 'obstacles', title: 'Shortcut: O' },
-    {
-      id: 'cell',
-      label: `Cell Size: ${cellLabel(state.cell)}`,
-      icon: 'ruler',
-      dropdown: dropdown(state, 'cell', CELL_SIZES.map(cellLabel), CELL_SIZES.indexOf(state.cell)),
-    },
-    {
-      id: 'roomCapture',
-      label: 'Room Setup',
-      icon: 'scan',
-      disabled: !env.roomCapture,
-      title: env.roomCapture
-        ? "Opens the headset's Space Setup, to scan or redraw the room"
-        : 'Needs an XR session in the Quest Browser',
-    },
-    { id: 'export', label: 'Export Room (.glb)', icon: 'download', disabled: !env.hasRoom, title: 'Shortcut: X' },
-    { id: 'clear', label: 'Clear Room', icon: 'clear', disabled: !env.hasRoom },
-  ];
-}
-
-/**
- * `env.scanPending`: points wait to become a shape; `env.canUndo`: there is
- * something to undo; `env.hasScans`: anything has been scanned.
- */
-function scanItems(state, env) {
-  const shaping = state.scanMode === 'walls' || state.scanMode === 'box';
+function depthItems(state) {
   return [
     {
-      id: 'scanMode',
-      label: `Mode: ${SCAN_MODE_LABELS[state.scanMode]}`,
-      icon: SCAN_MODE_ICONS[state.scanMode],
-      title: "Touch real surfaces with the right controller's tip and press the trigger",
-      dropdown: dropdown(
-        state,
-        'scanMode',
-        SCAN_MODES.map((m) => SCAN_MODE_LABELS[m]),
-        SCAN_MODES.indexOf(state.scanMode),
-        SCAN_MODES.map((m) => SCAN_MODE_ICONS[m]),
-      ),
+      id: 'depthMode',
+      label: `Source: ${DEPTH_MODE_LABELS[state.depthMode]}`,
+      icon: 'camera',
+      title: 'Auto: ARCore depth where the phone has it, sharpened by the ML model while it keeps up',
+      dropdown: dropdown(state, 'depthMode', DEPTH_MODES.map((m) => DEPTH_MODE_LABELS[m]), DEPTH_MODES.indexOf(state.depthMode)),
     },
     {
-      id: 'scanLabel',
-      label: `Box Label: ${capitalise(state.scanLabel)}`,
-      icon: 'tag',
-      disabled: state.scanMode !== 'box',
-      dropdown: dropdown(state, 'scanLabel', BOX_LABELS.map(capitalise), BOX_LABELS.indexOf(state.scanLabel)),
+      id: 'depthMesh',
+      label: `Depth Passthrough: ${onOff(state.depthMesh)}`,
+      icon: 'mesh',
+      title: 'Off: the camera image flat behind everything, as before',
     },
-    { id: 'scanBuild', label: 'Build Shape (A)', icon: 'check', disabled: !(shaping && env.scanPending) },
-    { id: 'scanUndo', label: 'Undo (B)', icon: 'undo', disabled: !env.canUndo },
     {
-      id: 'scanCalibrate',
-      label: 'Calibrate Tip',
-      icon: 'probe',
-      title: 'Hold the tip on one spot, hold the trigger and swivel the controller: it learns where the tip is',
+      id: 'strength',
+      label: `Stereo Strength: ${strengthLabel(state.strength)}`,
+      icon: 'eye',
+      title: "The eyes' separation in the phone viewer: 1× is true to scale, more exaggerates depth",
+      dropdown: dropdown(state, 'strength', STRENGTHS.map(strengthLabel), STRENGTHS.indexOf(state.strength)),
     },
-    { id: 'scans', label: `Scans: ${onOff(state.scans)}`, icon: 'mesh' },
-    { id: 'scanClear', label: 'Clear Scans', icon: 'clear', disabled: !env.hasScans },
   ];
 }
 
@@ -213,16 +166,23 @@ function videoItems(state, env) {
   const views = env.views ?? ['normal'];
   return [
     {
+      id: 'filter',
+      label: `Filter: ${FILTER_LABELS[state.filter]}`,
+      icon: 'filter',
+      title: 'Depth filters need depth: the depth passthrough, in XR or on the test feed',
+      dropdown: dropdown(state, 'filter', FILTERS.map((f) => FILTER_LABELS[f]), FILTERS.indexOf(state.filter)),
+    },
+    {
       id: 'background',
       label: `Background: ${BACKGROUND_LABELS[state.background]}`,
-      icon: state.background,
+      icon: BACKGROUND_ICONS[state.background],
       title: env.passthroughAvailable ? undefined : 'Passthrough needs an AR-capable headset or a phone camera',
       dropdown: dropdown(
         state,
         'background',
         backgrounds.map((b) => BACKGROUND_LABELS[b]),
         backgrounds.indexOf(state.background),
-        backgrounds,
+        backgrounds.map((b) => BACKGROUND_ICONS[b]),
       ),
     },
     {
@@ -253,24 +213,21 @@ const BACK = { id: `${PAGE_PREFIX}main`, label: 'Back', icon: 'back' };
  * the id ("page:<page>") opens that page, drawn with an arrow at the far
  * right. `dropdown`: { open, options: [{ id, label, selected }] }, drawn
  * with a chevron at the far right and, when open, its options beneath.
- * `env`: { xrSupported, passthroughAvailable, checking, views (available),
- * roomCapture, hasRoom, scanPending, canUndo, hasScans }.
+ * `env`: { xrSupported, passthroughAvailable, testFeedAvailable, checking,
+ * views (available) }.
  */
 export function menuItems(state, env) {
-  if (state.page === 'room') return [BACK, ...roomItems(state, env)];
-  if (state.page === 'scan') return [BACK, ...scanItems(state, env)];
+  if (state.page === 'depth') return [BACK, ...depthItems(state, env)];
   if (state.page === 'video') return [BACK, ...videoItems(state, env)];
   return [
-    { id: `${PAGE_PREFIX}room`, label: 'Room', icon: 'room', submenu: true },
-    { id: `${PAGE_PREFIX}scan`, label: 'Scan', icon: 'probe', submenu: true },
+    { id: `${PAGE_PREFIX}depth`, label: 'Depth', icon: 'layers', submenu: true },
     { id: `${PAGE_PREFIX}video`, label: 'Video', icon: 'video', submenu: true },
   ];
 }
 
 /** The most buttons any page has, so the XR panel can keep its top edge still when the page changes. */
-const SAMPLE_STATE = { style: STYLES[0], cell: CELL_SIZES[0], scanMode: SCAN_MODES[0], scanLabel: BOX_LABELS[0] };
-export const MENU_ROWS =
-  1 + Math.max(roomItems(SAMPLE_STATE, {}).length, scanItems(SAMPLE_STATE, {}).length, videoItems(SAMPLE_STATE, {}).length);
+const SAMPLE_STATE = { depthMode: DEPTH_MODES[0], strength: STRENGTHS[2], filter: FILTERS[0], background: 'solid', view: 'normal' };
+export const MENU_ROWS = 1 + Math.max(depthItems(SAMPLE_STATE).length, videoItems(SAMPLE_STATE, {}).length);
 
 /**
  * Every label the buttons can show, on every page, so both panels can size
@@ -279,26 +236,14 @@ export const MENU_ROWS =
  */
 export function possibleLabels(env) {
   const labels = new Set();
-  const base = {
-    planes: true,
-    meshes: true,
-    style: STYLES[0],
-    obstacles: true,
-    cell: CELL_SIZES[0],
-    scanMode: SCAN_MODES[0],
-    scanLabel: BOX_LABELS[0],
-    scans: true,
-    background: 'solid',
-    view: 'normal',
-  };
+  const base = { ...SAMPLE_STATE, depthMesh: true };
   const variants = [
-    ...STYLES.map((style) => ({ style })),
-    ...CELL_SIZES.map((cell) => ({ cell })),
-    ...SCAN_MODES.map((scanMode) => ({ scanMode })),
-    ...BOX_LABELS.map((scanLabel) => ({ scanLabel })),
+    ...DEPTH_MODES.map((depthMode) => ({ depthMode })),
+    ...STRENGTHS.map((strength) => ({ strength })),
+    ...FILTERS.map((filter) => ({ filter })),
     ...BACKGROUNDS.map((background) => ({ background })),
     ...VIEWS.map((view) => ({ view })),
-    { planes: false, meshes: false, obstacles: false, scans: false },
+    { depthMesh: false },
   ];
   for (const page of PAGES)
     for (const v of variants) for (const item of menuItems({ ...base, ...v, page }, env)) labels.add(item.label);

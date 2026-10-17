@@ -2,7 +2,7 @@
   "name": "room-mesh-threejs",
   "private": true,
   "version": "1.0.0",
-  "description": "Reads the room model a Quest reports over WebXR (planes, meshes, boundary) and builds a top-down obstacle map from it",
+  "description": "Phone AR with depth: stereo passthrough with real parallax and live video filters, from ARCore depth and Depth Anything in the browser",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,10 +16,10 @@
     "@react-three/fiber": "^9.8.1",
     "@react-three/xr": "^6.6.31",
     "lineicons": "^1.3.2",
+    "onnxruntime-web": "^1.30.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "three": "^0.186.1",
-    "three-mesh-bvh": "^0.9.16"
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@vitejs/plugin-basic-ssl": "^2.3.0",

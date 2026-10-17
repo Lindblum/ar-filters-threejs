@@ -10,13 +10,13 @@ import { Interlaced } from './Interlaced.jsx';
 import { CameraBackground, CardboardRig } from './Cardboard.jsx';
 import { GazeReticle } from './Gaze.jsx';
 import { PhoneStereoCameraFeed, PhoneStereoXR } from './PhoneStereo.jsx';
-import { BoundsOutline, ObstacleMap, ProbeMarker, RoomModel, RoomSensor } from './Room.jsx';
-import { Scanner } from './Scan.jsx';
+import { DepthPassthrough } from './DepthPassthrough.jsx';
+import { DepthSource } from './depth/DepthSource.jsx';
 import { SOLID_BACKGROUND } from './menu.js';
 
-// The windowed view looks down at the room from above and behind the spot
-// the headset started at, which is the origin of the room's coordinates.
-export const ORBIT_TARGET = [0, 0.8, 0];
+// The windowed view looks at the space in front of where the session (or
+// the test feed's camera) started, the origin of the room's coordinates.
+export const ORBIT_TARGET = [0, 1, -1.5];
 // Without VR controllers (hand tracking, phones) the XR panel starts off to
 // the player's left, turned toward them, and travels with the player. Constants, so a re-render never undoes a move.
 const MENU_POSITION = [-0.65, 1.05, -0.2];
@@ -25,13 +25,11 @@ const MENU_ROTATION = [0, 0.9, 0];
 const PHONE_STEREO_MENU_SCALE = 1.5;
 // With VR controllers the panel rides on the left one, like a palette held in
 // that hand: above the controller, tilted back toward the face, half size.
-// The right controller's ray probes the room and presses the panel's
-// buttons. In grip space, -Z points forward out of the controller and +Y up
+// The right controller's ray presses the panel's buttons. In grip space, -Z points forward out of the controller and +Y up
 // out of its top.
 const DOCK_POSITION = [0, 0.17, -0.02];
 const DOCK_ROTATION = [-0.35, 0, 0];
 const DOCK_SCALE = 0.5;
-const PROBE_REPORT_EVERY = 0.2; // seconds between probe readouts on the panels
 
 /**
  * Follows the left controller's grip each frame. A child of the XROrigin, so
@@ -66,7 +64,7 @@ class AssetBoundary extends Component {
     return { failed: true };
   }
   componentDidCatch(error) {
-    console.warn('[room-mesh] asset failed to load, continuing without it:', error.message);
+    console.warn('[depth-xr] asset failed to load, continuing without it:', error.message);
   }
   render() {
     return this.state.failed ? this.props.fallback ?? null : this.props.children;
@@ -127,7 +125,7 @@ function Backdrop({ background }) {
   }, [solid, inAR, scene]);
   if (solid) return inAR ? <SolidDome /> : null;
   return (
-    // own boundary so a slow or failed sky never holds back the room
+    // own boundary so a slow or failed sky never holds back the scene
     <AssetBoundary>
       <Suspense fallback={null}>
         <Sky passthrough={background === 'passthrough'} />
@@ -136,23 +134,13 @@ function Backdrop({ background }) {
   );
 }
 
-/** Soft light for the Solid style, which shades the room's surfaces. */
-function Lights() {
-  return (
-    <>
-      <hemisphereLight args={[0xdfe6ff, 0x5a5f70, 2.2]} />
-      <directionalLight position={[2, 6, 3]} intensity={1.6} />
-    </>
-  );
-}
-
 const _head = new THREE.Vector3();
 
 /**
  * Left thumbstick moves, right thumbstick turns smoothly about the head.
- * A grip on the panel carries it. The room, the panel and the obstacle map
- * are children of the player's origin, so they stay on the real room
- * however the player moves.
+ * A grip on the panel carries it. The depth passthrough and the panel are
+ * children of the player's origin, so they stay on the real room however
+ * the player moves.
  */
 function Player({ origin, menu, children }) {
   useXRControllerLocomotion(
@@ -178,27 +166,16 @@ function Player({ origin, menu, children }) {
   return <XROrigin ref={origin}>{children}</XROrigin>;
 }
 
-/** Reports what the probe is on, a few times a second: { label, distance } or null. */
-function ProbeReporter({ probe, onReport }) {
-  const last = useRef({ t: -Infinity, key: '' });
-  useFrame(({ clock }) => {
-    const p = probe.current;
-    const t = clock.elapsedTime;
-    const report = p ? { label: p.label, distance: Math.round(p.distance * 100) / 100 } : null;
-    const key = report ? `${report.label}:${report.distance}` : '';
-    if (key === last.current.key || t - last.current.t < PROBE_REPORT_EVERY) return;
-    last.current = { t, key };
-    onReport(report);
-  });
-  return null;
-}
-
-/** A floor grid for the windowed view, so an empty room still has a sense of scale. */
+/** A floor grid for the windowed view, for a sense of scale. */
 function FloorGrid() {
   return <gridHelper args={[10, 20, '#5a6278', '#3a4052']} raycast={() => null} />;
 }
 
-export default function Scene({ state, menu, phone, onGrid, onProximity, onProbe, onScan }) {
+/**
+ * `testFeed`: the desktop test feed's <video> (Background → Test Feed), or
+ * null. It stands in for a phone's camera outside XR.
+ */
+export default function Scene({ state, menu, phone, testFeed }) {
   const inSession = useXR((s) => s.mode === 'immersive-vr' || s.mode === 'immersive-ar');
   const inAR = useXR((s) => s.mode === 'immersive-ar');
   // a phone's AR session drawn as two lens-corrected eyes
@@ -211,12 +188,12 @@ export default function Scene({ state, menu, phone, onGrid, onProximity, onProbe
   const immersive = inSession || state.handheld;
   // the motion-sensor view has no AR session: passthrough is the rear camera
   const cameraPassthrough = state.handheld && state.passthrough;
+  // the camera as a surface at its depth: the phone's in AR, or the test feed's
+  const depthPassthrough = state.depthMesh && ((phone && inAR && state.passthrough) || Boolean(testFeed));
   const [cameraFailed, setCameraFailed] = useState(false);
   useEffect(() => setCameraFailed(false), [cameraPassthrough]);
   const origin = useRef(null);
   const menuPanel = useRef(null);
-  const shownPanel = useRef(null); // whichever panel is showing, docked or not, so the scanner leaves its presses alone
-  const probe = useRef(null); // the room surface under a pointer, see RoomModel
 
   return (
     <>
@@ -224,53 +201,44 @@ export default function Scene({ state, menu, phone, onGrid, onProximity, onProbe
         <CameraBackground
           split={state.stereo}
           onError={(e) => {
-            console.warn('[room-mesh] camera unavailable, showing the skybox instead:', e?.message ?? e);
+            console.warn('[depth-xr] camera unavailable, showing the skybox instead:', e?.message ?? e);
             setCameraFailed(true);
           }}
         />
       ) : (
-        <Backdrop background={state.background} />
+        <Backdrop background={state.background === 'testFeed' ? 'solid' : state.background} />
       )}
       {state.view === 'sbs' && !immersive && <SideBySide />}
       {state.view === 'interlaced' && !immersive && <Interlaced />}
-      {phoneStereo && <PhoneStereoXR />}
-      {phoneStereo && state.passthrough && (
+      {phoneStereo && <PhoneStereoXR strength={state.strength} />}
+      {phone && inAR && state.passthrough && (
         <PhoneStereoCameraFeed
+          stereo={phoneStereo}
           onUnavailable={(reason) =>
-            console.warn(`[room-mesh] no per-eye camera image (${reason}); the browser's camera view shows behind instead`)
+            console.warn(`[depth-xr] no camera image (${reason}); the browser's camera view shows behind instead, unfiltered`)
           }
         />
       )}
-      <Lights />
       {!inSession && <FloorGrid />}
-      <RoomSensor />
+      <DepthSource mode={state.depthMode} video={testFeed} />
       <Player origin={origin} menu={menuPanel}>
-        <RoomModel showPlanes={state.planes} showMeshes={state.meshes} showScans={state.scans} style={state.style} probe={probe} />
-        <BoundsOutline />
-        {state.obstacles && <ObstacleMap cell={state.cell} origin={origin} onGrid={onGrid} onProximity={onProximity} />}
+        {depthPassthrough && <DepthPassthrough />}
         {immersive &&
           (docked && inSession ? (
             // no groupRef: a docked panel can't be carried off by a grip
             <LeftControllerDock>
-              <group ref={shownPanel}>
-                <XRMenuPanel {...menu} position={DOCK_POSITION} rotation={DOCK_ROTATION} scale={DOCK_SCALE} />
-              </group>
+              <XRMenuPanel {...menu} position={DOCK_POSITION} rotation={DOCK_ROTATION} scale={DOCK_SCALE} />
             </LeftControllerDock>
           ) : (
-            <group ref={shownPanel}>
-              <XRMenuPanel
-                {...menu}
-                groupRef={menuPanel}
-                position={MENU_POSITION}
-                rotation={MENU_ROTATION}
-                scale={phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1}
-              />
-            </group>
+            <XRMenuPanel
+              {...menu}
+              groupRef={menuPanel}
+              position={MENU_POSITION}
+              rotation={MENU_ROTATION}
+              scale={phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1}
+            />
           ))}
-        {inSession && <Scanner mode={state.scanMode} label={state.scanLabel} panels={[shownPanel]} onStatus={onScan} />}
       </Player>
-      <ProbeMarker probe={probe} />
-      <ProbeReporter probe={probe} onReport={onProbe} />
       {immersive && !hasControllers && <GazeReticle />}
       {state.handheld ? (
         <CardboardRig split={state.stereo} />

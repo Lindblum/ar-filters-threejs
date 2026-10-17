@@ -7,14 +7,11 @@ import Icon from './Icon.jsx';
 import { MENU_TOGGLE } from './XRMenuPanel.jsx';
 import { PHONE_AR_SESSION_INIT } from './PhoneStereo.jsx';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
-import { useRoomVersion } from './Room.jsx';
-import { clearRoom, exportRoomGLB, getRoom, roomSummary } from './room.js';
-import { BOX_LABELS, canUndo, clearScans, finishShape, startCalibration, undoScan } from './scan.js';
+import { useDepthStatus } from './depth/store.js';
+import { FILTERS, setFilter } from './filters.js';
+import { useTestFeed } from './testFeed.js';
 import {
-  ACTIONS,
-  CELL_SIZES,
   DROPDOWNS,
-  STYLES,
   TOGGLES,
   XR_VIEWS,
   MENU_ROWS,
@@ -35,31 +32,28 @@ import {
 // the 4D viewer:
 //   XR: Headset (headsets) starts an AR session where supported (so every
 //   background, passthrough included, can be switched live), otherwise VR.
-//   It asks for the headset's room model: planes, meshes, hit testing and
-//   the guardian boundary.
 //   XR: Phone AR / Phone Viewer start one AR session (tracked by ARCore) that
 //   the app draws as one view, or two lens-corrected eyes for a phone viewer;
-//   switching between the two is live. Phones without AR get a view steered
-//   by the motion sensors instead, with the rear camera for passthrough.
+//   switching between the two is live. The session asks for the camera
+//   image and ARCore's depth, which the depth passthrough turns into a
+//   surface each eye sees from its own side. Phones without AR get a view
+//   steered by the motion sensors instead, with the rear camera, flat, for
+//   passthrough.
 
 // kept as a reference: the store reads it whenever a session starts
 const xrOptions = {
   // controllers and hands get ray / touch pointers by default, for the panel and the probe
   frameRate: 'high',
-  // headset emulator on localhost during development only; it loads a sample room
+  // headset emulator on localhost during development only
   emulate: import.meta.env.DEV ? 'metaQuest3' : false,
   foveation: 0.5,
 };
 const store = createXRStore(xrOptions);
 
-/**
- * The headset session's options: the library's defaults plus the guardian
- * boundary (bounded-floor). All optional, so a headset without one of them
- * still starts, and the panel says which were granted.
- */
+/** The headset session's options: the library's defaults, all optional so any headset starts. */
 const HEADSET_SESSION_INIT = {
   requiredFeatures: ['local-floor'],
-  optionalFeatures: ['plane-detection', 'mesh-detection', 'hit-test', 'anchors', 'bounded-floor', 'hand-tracking', 'layers'],
+  optionalFeatures: ['hand-tracking', 'layers'],
 };
 
 /** Starts a session with `init` in place of the library's options. */
@@ -88,24 +82,20 @@ function isPhone() {
 
 const describe = (e) => `${e?.name ?? 'Error'}${e?.message ? ` - ${e.message}` : ''}`;
 
-function useRoomState() {
-  const [planes, setPlanes] = useState(true);
-  const [meshes, setMeshes] = useState(true);
-  const [style, setStyle] = useState(STYLES[0]);
-  const [obstacles, setObstacles] = useState(true);
-  const [cell, setCell] = useState(CELL_SIZES[1]);
-  const [scanMode, setScanMode] = useState('off'); // see scan.js
-  const [scanLabel, setScanLabel] = useState(BOX_LABELS[0]);
-  const [scans, setScans] = useState(true);
-  const [background, setBackground] = useState('passthrough'); // 'solid' | 'skybox' | 'passthrough'
+function useAppState() {
+  const [depthMode, setDepthMode] = useState('auto'); // see depth/DepthSource.jsx
+  const [depthMesh, setDepthMesh] = useState(true); // the camera drawn at its depth, not flat
+  const [strength, setStrength] = useState(1); // the phone viewer's eye separation, times true scale
+  const [filter, setFilterName] = useState('none');
+  const [background, setBackground] = useState('passthrough'); // 'solid' | 'skybox' | 'passthrough' | 'testFeed'
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
   const [page, setPage] = useState('main'); // the submenu showing, see menu.js
   const [dropdown, setDropdown] = useState(null); // the dropdown whose list is open
 
   const actions = useMemo(
     () => ({
-      toggle: (id) => ({ planes: setPlanes, meshes: setMeshes, obstacles: setObstacles, scans: setScans })[id]((v) => !v),
-      nextStyle: (step = 1) => setStyle((s) => cycle(STYLES, s, step)),
+      toggle: (id) => ({ depthMesh: setDepthMesh })[id]((v) => !v),
+      nextFilter: (step = 1) => setFilterName((f) => cycle(FILTERS, f, step)),
       toggleMenu: () => setMenuOpen((v) => !v),
       setPage: (p) => {
         setPage(p);
@@ -115,26 +105,20 @@ function useRoomState() {
       closeDropdown: () => setDropdown(null),
       /** A choice from a dropdown's list (see dropdownChoices), which then closes. */
       pick: (id, choice) => {
-        ({ style: setStyle, cell: setCell, scanMode: setScanMode, scanLabel: setScanLabel, background: setBackground })[id](choice);
+        ({ depthMode: setDepthMode, strength: setStrength, filter: setFilterName, background: setBackground })[id](choice);
         setDropdown(null);
       },
     }),
     [],
   );
-  const state = { planes, meshes, style, obstacles, cell, scanMode, scanLabel, scans, background, menuOpen, page, dropdown };
+  const state = { depthMode, depthMesh, strength, filter, background, menuOpen, page, dropdown };
   return [state, actions];
 }
 
-function useKeyboard(actions, runAction) {
-  const latest = useRef(runAction);
-  latest.current = runAction;
+function useKeyboard(actions) {
   useEffect(() => {
     const keymap = {
-      KeyP: () => actions.toggle('planes'),
-      KeyM: () => actions.toggle('meshes'),
-      KeyO: () => actions.toggle('obstacles'),
-      KeyY: actions.nextStyle,
-      KeyX: () => latest.current('export'),
+      KeyF: actions.nextFilter,
       Enter: actions.toggleMenu,
       NumpadEnter: actions.toggleMenu,
       Escape: actions.toggleMenu,
@@ -269,60 +253,50 @@ function Hud({ menu, notes }) {
 }
 
 // which session features the panel reports, and how it names them
-const FEATURE_NAMES = { 'plane-detection': 'planes', 'mesh-detection': 'meshes', 'hit-test': 'hit test', 'bounded-floor': 'boundary' };
+const FEATURE_NAMES = { 'camera-access': 'camera', 'depth-sensing': 'depth', 'hit-test': 'hit test' };
 
-const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+const SOURCE_NAMES = { arcore: 'ARCore', 'arcore+ml': 'ARCore + ML', ml: 'ML', test: 'ML (test feed)' };
 
-/** The scanner's lines (see Scanner's status): what it's doing, the tape measure, and any message. */
-function scanLines(scan) {
+/** The depth lines: where depth comes from, how fast, and how sure its scale is. */
+function depthLines(depth, active) {
+  const { ml } = depth;
   const lines = [];
-  if (scan.calibrating) lines.push(`Calibrate: tip on one spot, hold trigger, swivel${scan.samples ? ` · ${scan.samples} poses` : ''}`);
-  else if (scan.mode === 'points') lines.push('Points: click for a point, hold to trace');
-  else if (scan.mode === 'walls') lines.push(`Walls: ${plural(scan.pending, 'corner')} · A builds, B undoes`);
-  else if (scan.mode === 'box') lines.push(`Box: ${plural(scan.pending, 'point')} · A builds, B undoes`);
-  lines.push(`Tip: ${scan.height.toFixed(2)} m up${scan.fromLast != null ? `, ${scan.fromLast.toFixed(2)} m from last` : ''}`);
-  if (scan.message) lines.push(scan.message);
+  if (ml.state === 'loading') lines.push(`Depth model: ${ml.progress ? `downloading ${ml.progress}%` : 'loading'}`);
+  else if (ml.state === 'failed') lines.push(`Depth model failed: ${ml.error}`);
+  if (!active) return lines;
+  if (!depth.source) {
+    lines.push(depth.arcore === 'gpu' ? 'Depth: ARCore depth is GPU-only here, waiting for the model' : 'Depth: none yet');
+    return lines;
+  }
+  const parts = [SOURCE_NAMES[depth.source]];
+  if (depth.rawSize) parts[0] += ` ${depth.rawSize[0]}×${depth.rawSize[1]}`;
+  if (ml.ms != null && depth.source !== 'arcore') parts.push(`${ml.ms} ms`);
+  if (ml.slow && depth.source === 'arcore') parts.push('model too slow');
+  const fit = depth.fit;
+  if (fit?.assumed) parts.push('scale assumed');
+  else if (fit) parts.push(`scale ±${fit.error.toFixed(2)} m${depth.source === 'ml' ? ` from ${depth.anchors} hits` : ''}`);
+  lines.push(`Depth: ${parts.join(' · ')}`);
   return lines;
 }
 
 /** The status lines both panels show above the buttons. */
-function statusLines({ inXR, xrLine, summary, features, grid, proximity, probe, obstacles, scan }) {
+function statusLines({ inXR, xrLine, features, depth, depthActive }) {
   const lines = [];
   if (inXR) {
     const granted = features && Object.keys(FEATURE_NAMES).filter((f) => features.includes(f));
     lines.push(
-      granted ? `${xrLine} · ${granted.length ? granted.map((f) => FEATURE_NAMES[f]).join(', ') : 'no room features'}` : xrLine,
+      granted ? `${xrLine} · ${granted.length ? granted.map((f) => FEATURE_NAMES[f]).join(', ') : 'no camera or depth'}` : xrLine,
     );
   }
-  const { planes, meshes, triangles } = summary;
-  lines.push(
-    planes || meshes
-      ? `Room: ${planes} plane${planes === 1 ? '' : 's'}, ${meshes} mesh${meshes === 1 ? '' : 'es'}, ${triangles.toLocaleString()} triangles`
-      : 'Room: nothing detected yet',
-  );
-  if (summary.scanned || summary.points)
-    lines.push(`Scanned: ${plural(summary.scanned, 'surface')}, ${plural(summary.points, 'point')}`);
-  if (inXR && scan) lines.push(...scanLines(scan));
-  if (obstacles) {
-    const near = inXR && proximity != null ? ` · nearest ${proximity.toFixed(2)} m` : '';
-    lines.push(
-      grid ? `Obstacles: ${grid.obstacles.toLocaleString()} cells of ${Math.round(grid.cell * 100)} cm${near}` : 'Obstacles: no map yet',
-    );
-  }
-  lines.push(probe ? `Pointer: ${probe.label}, ${probe.distance.toFixed(2)} m away` : 'Pointer: point at a surface');
+  lines.push(...depthLines(depth, depthActive));
   return lines;
 }
 
 export default function App() {
-  const [state, actions] = useRoomState();
-  const roomVersion = useRoomVersion();
-  const summary = useMemo(roomSummary, [roomVersion]);
-  const hasScans = summary.scanned + summary.points > 0;
-  const hasRoom = summary.planes + summary.meshes > 0 || hasScans;
-  const [grid, setGrid] = useState(null);
-  const [proximity, setProximity] = useState(null);
-  const [probe, setProbe] = useState(null);
-  const [scanStatus, setScanStatus] = useState(null); // the scanner's report, in XR
+  const [state, actions] = useAppState();
+  useEffect(() => setFilter(state.filter), [state.filter]);
+  useKeyboard(actions);
+  const depth = useDepthStatus();
 
   const support = useXRSupport();
   const session = useSyncExternalStore(store.subscribe, getSession);
@@ -340,32 +314,9 @@ export default function App() {
   // derived from the session, so the panel can never disagree with what is showing
   const view = inXR ? (phone ? (phoneStereo ? 'phoneViewer' : 'phoneAR') : 'xr') : screenView;
   const [error, setError] = useState(null);
-  useEffect(() => {
-    if (!sessionActive) setScanStatus(null);
-  }, [sessionActive]);
-  // Quest Browser only: opens Space Setup, to scan or redraw the room
-  const roomCapture = typeof session?.initiateRoomCapture === 'function';
-
-  const runAction = (id) => {
-    if (id === 'export') {
-      if (!getRoom().entries.size) return;
-      exportRoomGLB().catch((e) => {
-        console.error('[room-mesh] export failed', e);
-        setError(`Couldn't export the room: ${describe(e)}`);
-      });
-    } else if (id === 'clear') clearRoom();
-    else if (id === 'scanBuild') finishShape(state.scanMode, state.scanLabel);
-    else if (id === 'scanUndo') undoScan();
-    else if (id === 'scanCalibrate') startCalibration();
-    else if (id === 'scanClear') clearScans();
-    else if (id === 'roomCapture' && roomCapture) {
-      session.initiateRoomCapture().catch((e) => {
-        console.warn('[room-mesh] room capture refused', e);
-        setError(`Room Setup didn't open: ${describe(e)}`);
-      });
-    }
-  };
-  useKeyboard(actions, runAction);
+  // the desktop's stand-in for a phone camera, outside XR
+  const testFeedAvailable = !phone && !headset;
+  const testFeed = useTestFeed(testFeedAvailable && state.background === 'testFeed' && !inXR);
 
   // into an XR view, straight from the tap
   const enterXR = async (stereo) => {
@@ -375,7 +326,7 @@ export default function App() {
       if (phone && support.ar) await enterWith(PHONE_AR_SESSION_INIT, () => store.enterAR());
       else if (phone) {
         enterCardboard({ landscape: stereo }).then((sensors) => {
-          if (!sensors) console.warn('[room-mesh] motion sensor access denied; the view will not follow the phone');
+          if (!sensors) console.warn('[depth-xr] motion sensor access denied; the view will not follow the phone');
         });
         setHandheld(true);
       } else if (support.ar) await enterWith(HEADSET_SESSION_INIT, () => store.enterAR());
@@ -384,7 +335,7 @@ export default function App() {
         await enterWith(HEADSET_SESSION_INIT, () => store.enterVR());
       }
     } catch (e) {
-      console.error(`[room-mesh] could not start ${label}`, e);
+      console.error(`[depth-xr] could not start ${label}`, e);
       setError(`Couldn't start ${label}: ${describe(e)}`);
     }
   };
@@ -426,7 +377,6 @@ export default function App() {
       } else actions.pick(dropdownId, choice);
     } else if (DROPDOWNS.includes(id)) actions.toggleDropdown(id);
     else if (TOGGLES.includes(id)) actions.toggle(id);
-    else if (ACTIONS.includes(id)) runAction(id);
   };
   const selectView = (next) => {
     const toXR = XR_VIEWS.includes(next);
@@ -450,26 +400,15 @@ export default function App() {
   const status = statusLines({
     inXR,
     xrLine,
-    summary,
-    features: getRoom().features,
-    grid: state.obstacles ? grid : null,
-    proximity,
-    probe,
-    obstacles: state.obstacles,
-    scan: scanStatus,
+    features: session?.enabledFeatures,
+    depth,
+    depthActive: (sessionActive && sessionMode === 'immersive-ar') || Boolean(testFeed.video),
   });
-  const env = {
-    xrSupported,
-    passthroughAvailable,
-    checking: !support.checked,
-    views,
-    roomCapture,
-    hasRoom,
-    scanPending: (scanStatus?.pending ?? 0) > 0,
-    canUndo: canUndo(),
-    hasScans,
-  };
-  const labels = useMemo(() => possibleLabels({ xrSupported, passthroughAvailable, views }), [xrSupported, passthroughAvailable, views]);
+  const env = { xrSupported, passthroughAvailable, testFeedAvailable, checking: !support.checked, views };
+  const labels = useMemo(
+    () => possibleLabels({ xrSupported, passthroughAvailable, testFeedAvailable, views }),
+    [xrSupported, passthroughAvailable, testFeedAvailable, views],
+  );
   const menu = {
     title: menuTitle(state.page),
     rows: MENU_ROWS,
@@ -481,26 +420,24 @@ export default function App() {
   };
   const notes = [
     !inXR &&
-      !hasRoom && {
-        text: import.meta.env.DEV
-          ? 'Choose Video → View Mode → XR: Headset to read the room. Here on localhost a Quest 3 emulator stands in, with a sample room.'
-          : "Open this page in the Quest Browser and choose Video → View Mode → XR: Headset. The room comes from the headset's Space Setup, so run that first.",
+      !testFeed.video && {
+        text: testFeedAvailable
+          ? 'On an Android phone, open this page in Chrome and choose Video → View Mode → XR: Phone Viewer. Here, Video → Background → Test Feed runs depth on your webcam, or on a video file dropped on the page.'
+          : 'Choose Video → View Mode → XR: Phone Viewer for stereo with depth, or XR: Phone AR for one view.',
       },
+    testFeed.error && { text: testFeed.error, error: true },
     error && { text: error, error: true },
   ].filter(Boolean);
 
   return (
     <>
-      <Canvas flat dpr={[1, 2]} events={sideBySideEvents} camera={{ position: [2.5, 3.2, 4.5], fov: 50, near: 0.05, far: 200 }}>
+      <Canvas flat dpr={[1, 2]} events={sideBySideEvents} camera={{ position: [1.6, 2.2, 1.8], fov: 50, near: 0.05, far: 200 }}>
         <XR store={store}>
           <Scene
             state={{ ...state, view, stereo: phoneStereo, handheld, passthrough: state.background === 'passthrough' }}
             menu={menu}
             phone={phone}
-            onGrid={setGrid}
-            onProximity={setProximity}
-            onProbe={setProbe}
-            onScan={setScanStatus}
+            testFeed={testFeed.video}
           />
         </XR>
       </Canvas>

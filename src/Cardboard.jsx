@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { CardboardLens } from './CardboardLens.js';
+import { FILTER_GLSL, filterUniforms } from './filters.js';
 
 // Handheld XR for phones whose browser has no stereo WebXR session
 // (immersive-vr): split-screen stereo for a Cardboard-style viewer, or a
@@ -169,14 +170,58 @@ export function CardboardOverlay({ split, onHold, onExit }) {
 }
 
 /**
- * Rear camera feed as the scene background, centre-cropped to each view so
- * it isn't stretched. Calls `onError` if the camera is unavailable or denied.
+ * Rear camera feed behind the scene, through the chosen filter,
+ * centre-cropped to each view so it isn't stretched. Calls `onError` if the
+ * camera is unavailable or denied.
  */
 export function CameraBackground({ split, onError }) {
-  const scene = useThree((s) => s.scene);
   const texture = useRef(null);
+  const mesh = useRef(null);
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  const material = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        uniforms: {
+          map: { value: null },
+          uvScale: { value: new THREE.Vector2(1, 1) },
+          texel: { value: new THREE.Vector2(1 / 640, 1 / 480) },
+          ...filterUniforms,
+        },
+        // a full-viewport quad at the far plane, in each eye's viewport
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = vec4(position.xy, 1.0, 1.0);
+          }`,
+        fragmentShader: /* glsl */ `
+          uniform sampler2D map;
+          uniform vec2 uvScale;
+          uniform vec2 texel;
+          varying vec2 vUv;
+          ${FILTER_GLSL}
+          vec3 srgbToLinear(vec3 c) {
+            return mix(c * 0.0773993808, pow(c * 0.9478672986 + 0.0521327014, vec3(2.4)), step(vec3(0.04045), c));
+          }
+          void main() {
+            vec3 c = applyFilter(map, (vUv - 0.5) * uvScale + 0.5, texel, -1.0, 0.0);
+            gl_FragColor = vec4(srgbToLinear(c), 1.0);
+            #include <colorspace_fragment>
+          }`,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    [],
+  );
+  const geometry = useMemo(() => new THREE.PlaneGeometry(2, 2), []);
+  useEffect(
+    () => () => {
+      material.dispose();
+      geometry.dispose();
+    },
+    [material, geometry],
+  );
 
   useEffect(() => {
     let stream;
@@ -203,7 +248,7 @@ export function CameraBackground({ split, onError }) {
         const t = new THREE.VideoTexture(video);
         t.colorSpace = THREE.SRGBColorSpace;
         texture.current = t;
-        scene.background = t;
+        material.uniforms.map.value = t;
       })
       .catch((e) => {
         if (!cancelled) onErrorRef.current?.(e);
@@ -211,23 +256,24 @@ export function CameraBackground({ split, onError }) {
     return () => {
       cancelled = true;
       stream?.getTracks().forEach((track) => track.stop());
-      if (texture.current && scene.background === texture.current) scene.background = null;
+      material.uniforms.map.value = null;
       texture.current?.dispose();
       texture.current = null;
     };
-  }, [scene]);
+  }, [material]);
 
-  useFrame(({ size }) => {
-    const t = texture.current;
-    const video = t?.image;
+  useFrame(({ size, clock }) => {
+    const video = texture.current?.image;
+    mesh.current.visible = Boolean(video?.videoWidth);
     if (!video?.videoWidth) return;
     const viewAspect = (split ? size.width / 2 : size.width) / size.height;
     const videoAspect = video.videoWidth / video.videoHeight;
     // cover: crop whichever dimension overflows
-    if (videoAspect > viewAspect) t.repeat.set(viewAspect / videoAspect, 1);
-    else t.repeat.set(1, videoAspect / viewAspect);
-    t.offset.set((1 - t.repeat.x) / 2, (1 - t.repeat.y) / 2);
+    if (videoAspect > viewAspect) material.uniforms.uvScale.value.set(viewAspect / videoAspect, 1);
+    else material.uniforms.uvScale.value.set(1, videoAspect / viewAspect);
+    material.uniforms.texel.value.set(1 / video.videoWidth, 1 / video.videoHeight);
+    filterUniforms.filterTime.value = clock.elapsedTime % 100;
   });
 
-  return null;
+  return <mesh ref={mesh} visible={false} geometry={geometry} material={material} frustumCulled={false} renderOrder={-1000} />;
 }

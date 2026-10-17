@@ -62,6 +62,9 @@ export function leftEyeTangents(screen = screenMetres()) {
 const _offset = new THREE.Matrix4();
 
 export class CardboardLens {
+  /** The eyes' separation, times the lens spacing: 1 is true to scale, more exaggerates depth. */
+  ipdScale = 1;
+
   constructor() {
     this.target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: true });
     this.tangents = leftEyeTangents();
@@ -147,7 +150,7 @@ export class CardboardLens {
    */
   eyeCamera(index, headMatrixWorld, near, far, eye) {
     const side = index === 0 ? -1 : 1;
-    eye.matrix.copy(headMatrixWorld).multiply(_offset.makeTranslation((side * VIEWER.interLensDistance) / 2, 0, 0));
+    eye.matrix.copy(headMatrixWorld).multiply(_offset.makeTranslation((side * VIEWER.interLensDistance * this.ipdScale) / 2, 0, 0));
     eye.matrixWorld.copy(eye.matrix);
     eye.matrixWorldInverse.copy(eye.matrixWorld).invert();
     const { outer, inner, down, up } = this.tangents;

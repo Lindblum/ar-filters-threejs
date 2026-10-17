@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { CardboardLens } from './CardboardLens.js';
+import { DEPTH_SENSING_INIT } from './depth/arcore.js';
+import { FILTER_GLSL, filterUniforms } from './filters.js';
 
 // Stereo on top of a phone's WebXR AR session. ARCore supplies full 6DoF
 // tracking, so the model stays where it is in the room and you can walk
@@ -40,16 +42,23 @@ function updateLayout(gl, framebufferWidth, framebufferHeight) {
   layout.height = portrait ? framebufferWidth : framebufferHeight;
 }
 
-/** The phone AR session's options: the library's defaults plus raw camera access, for passthrough in stereo. */
+/**
+ * The phone AR session's options: raw camera access (for drawing the camera
+ * per eye, filtered, and for the depth model), ARCore depth, and hit tests
+ * (to scale the model's depth when there's no ARCore depth).
+ */
 export const PHONE_AR_SESSION_INIT = {
   requiredFeatures: ['local-floor'],
-  optionalFeatures: ['camera-access', 'anchors', 'hit-test', 'plane-detection', 'mesh-detection', 'hand-tracking'],
+  optionalFeatures: ['camera-access', 'depth-sensing', 'hit-test', 'anchors', 'hand-tracking'],
+  depthSensing: DEPTH_SENSING_INIT,
 };
 
-export function PhoneStereoXR() {
+/** `strength`: the eyes' separation, times the viewer's lens spacing (1: true to scale). */
+export function PhoneStereoXR({ strength = 1 }) {
   const gl = useThree((s) => s.gl);
   const lens = useMemo(() => new CardboardLens(), []);
   useEffect(() => () => lens.dispose(), [lens]);
+  lens.ipdScale = strength;
 
   // Render the two eyes (via the camera override below) into an offscreen
   // image the size of the XR framebuffer, then draw it through the lens warp
@@ -133,17 +142,25 @@ export function PhoneStereoXR() {
 }
 
 /**
- * Passthrough for the split view: draws the AR camera frame (WebXR raw
- * camera access) behind the scene in each eye, centre-cropped to the eye.
- * Without it the browser composites one full-screen camera image that
- * would not line up with the two eyes.
+ * Passthrough drawn by the app: the AR camera frame (WebXR raw camera
+ * access) behind the scene, through the chosen filter. In the split view
+ * (`stereo`) it is centre-cropped to each eye; without it the browser
+ * composites one full-screen camera image that would not line up with the
+ * two eyes. In the single view the image matches the view as it is. With
+ * depth, the depth passthrough draws in front of it and this fills the gaps.
  */
-export function PhoneStereoCameraFeed({ onUnavailable }) {
+export function PhoneStereoCameraFeed({ stereo, onUnavailable }) {
   const gl = useThree((s) => s.gl);
   const material = useMemo(
     () =>
       new THREE.ShaderMaterial({
-        uniforms: { map: { value: null }, uvScale: { value: new THREE.Vector2(1, 1) }, rotation: { value: 0 } },
+        uniforms: {
+          map: { value: null },
+          uvScale: { value: new THREE.Vector2(1, 1) },
+          rotation: { value: 0 },
+          texel: { value: new THREE.Vector2(1 / 640, 1 / 480) },
+          ...filterUniforms,
+        },
         // a full-viewport quad at the far plane, independent of the camera
         vertexShader: /* glsl */ `
           varying vec2 vUv;
@@ -151,13 +168,15 @@ export function PhoneStereoCameraFeed({ onUnavailable }) {
             vUv = uv;
             gl_Position = vec4(position.xy, 1.0, 1.0);
           }`,
-        // the camera image is sRGB; the scene is drawn in linear light into the
-        // lens-correction image, which converts back to sRGB on output
+        // the camera image is sRGB; the scene is drawn in linear light, and
+        // converted back to sRGB on output (by the lens pass in stereo)
         fragmentShader: /* glsl */ `
           uniform sampler2D map;
           uniform vec2 uvScale;
           uniform float rotation;
+          uniform vec2 texel;
           varying vec2 vUv;
+          ${FILTER_GLSL}
           vec3 srgbToLinear(vec3 c) {
             return mix(c * 0.0773993808, pow(c * 0.9478672986 + 0.0521327014, vec3(2.4)), step(vec3(0.04045), c));
           }
@@ -166,8 +185,9 @@ export function PhoneStereoCameraFeed({ onUnavailable }) {
             vec2 s = vUv;
             if (rotation > 0.5) s = vec2(1.0 - vUv.y, vUv.x);
             else if (rotation < -0.5) s = vec2(vUv.y, 1.0 - vUv.x);
-            vec4 c = texture2D(map, (s - 0.5) * uvScale + 0.5);
-            gl_FragColor = vec4(srgbToLinear(c.rgb), 1.0);
+            vec3 c = applyFilter(map, (s - 0.5) * uvScale + 0.5, texel, -1.0, 0.0);
+            gl_FragColor = vec4(srgbToLinear(c), 1.0);
+            #include <colorspace_fragment>
           }`,
         depthTest: false,
         depthWrite: false,
@@ -201,6 +221,13 @@ export function PhoneStereoCameraFeed({ onUnavailable }) {
     }
     material.uniforms.map.value = texture ?? null;
     mesh.current.visible = Boolean(texture?.sourceTexture);
+    if (xrCamera?.width) material.uniforms.texel.value.set(1 / xrCamera.width, 1 / xrCamera.height);
+    if (!stereo) {
+      // one view: the camera image is that view
+      material.uniforms.rotation.value = 0;
+      material.uniforms.uvScale.value.set(1, 1);
+      return;
+    }
     material.uniforms.rotation.value = layout.rotation;
     if (xrCamera?.width && xrCamera?.height) {
       // cover each eye with the camera image; measured as the eye sits on the screen
