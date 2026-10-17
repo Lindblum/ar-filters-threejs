@@ -99,6 +99,40 @@ const scan = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none
 <path d="m12 7 4.5 2.5v5L12 17l-4.5-2.5v-5L12 7Zm0 5 4.5-2.5M12 12v5m0-5L7.5 9.5" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
 </svg>`;
 
+// Scan: a controller's tip on a point, in a crosshair
+const probe = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<circle cx="12" cy="12" r="6.25" stroke="currentColor" stroke-width="1.5"/>
+<circle cx="12" cy="12" r="1.75" fill="currentColor"/>
+<path d="M12 2.75v3M12 18.25v3M2.75 12h3M18.25 12h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`;
+
+// Scan → Points: a traced stroke of dots
+const points = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<circle cx="4.5" cy="17" r="1.6" fill="currentColor"/>
+<circle cx="8.5" cy="12.5" r="1.6" fill="currentColor"/>
+<circle cx="12.5" cy="11" r="1.6" fill="currentColor"/>
+<circle cx="16" cy="7.5" r="1.6" fill="currentColor"/>
+<circle cx="19.5" cy="5" r="1.6" fill="currentColor"/>
+<circle cx="15" cy="17.5" r="1.6" fill="currentColor" fill-opacity="0.5"/>
+</svg>`;
+
+// Scan → Box: a box
+const box = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="m12 3 8.25 4.5v9L12 21l-8.25-4.5v-9L12 3Zm0 9 8.25-4.5M12 12v9m0-9L3.75 7.5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+</svg>`;
+
+// Box Label: a tag
+const tag = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M3.75 4.75v6.3a1.5 1.5 0 0 0 .44 1.06l8.2 8.2a1.5 1.5 0 0 0 2.12 0l5.8-5.8a1.5 1.5 0 0 0 0-2.12l-8.2-8.2a1.5 1.5 0 0 0-1.06-.44h-6.3a1 1 0 0 0-1 1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+<circle cx="8.25" cy="8.25" r="1.5" fill="currentColor"/>
+</svg>`;
+
+// Undo: an arrow curving back
+const undo = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M8.5 5 4 9.5 8.5 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M4 9.5h10.25a5.75 5.75 0 0 1 0 11.5H11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`;
+
 const ICONS = {
   room: recolour(home),
   planes,
@@ -107,6 +141,11 @@ const ICONS = {
   obstacles,
   ruler: recolour(ruler),
   scan,
+  probe,
+  points,
+  box,
+  tag,
+  undo,
   download: recolour(download),
   clear: recolour(trash),
   video,

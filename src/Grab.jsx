@@ -12,7 +12,8 @@ const HANDS = ['left', 'right'];
 const _world = new THREE.Matrix4();
 const _parentInverse = new THREE.Matrix4();
 
-function isShown(object) {
+/** Whether `object` and all its parents are visible. */
+export function isShown(object) {
   for (let o = object; o; o = o.parent) if (!o.visible) return false;
   return true;
 }

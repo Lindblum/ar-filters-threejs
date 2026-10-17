@@ -17,6 +17,22 @@ WebXR on a Quest does **not** give pages the camera images, and a Quest 2 has no
 
 So on a Quest 2 the "mesh" is as good as the room you draw in Space Setup. **Room Setup** in the Room menu opens Space Setup from inside the session (Quest Browser only). The panel's first line in XR says which of these features the session was actually granted.
 
+## Touch-to-scan
+
+What a Quest 2 *can* measure precisely is where its controllers are: to a few millimetres. So the **Scan** menu turns the right controller into a probe: hold its tip against a real surface and pull the trigger to record a 3D point there, in the same coordinates as everything else. A small sphere marks the tip; a haptic tick confirms each point.
+
+| Mode | Trigger | A | Builds |
+| --- | --- | --- | --- |
+| **Points** | Click: one point. Hold: trace a stroke, a point every 1 cm | — | A point cloud, for anything irregular |
+| **Walls** | One press per room corner, in order, at any height | Build | Walls straight up through the corners. Three or more close the loop and add a floor and a ceiling. They're 2.4 m tall unless you touch one corner up near the ceiling (over 1.8 m), which sets the height |
+| **Box** | Three or more points on an object's top, its corners say | Build | A box turned to fit the points, from the floor up to the highest one, labelled by **Box Label**. Touch a bottom corner too (over 10 cm lower) and it spans just between them, for a wall cabinet or a table top |
+
+**B** undoes the last point, or else the last shape. Scanned surfaces feed the obstacle map, the pointer probe and **Export Room (.glb)** like the headset's own; **Scans** shows or hides them, **Clear Scans** drops them.
+
+**Calibrate Tip** once per controller, for millimetre points: choose it, put the controller's tip on one fixed spot (a table corner), hold the trigger and swivel the controller around that spot for a few seconds, keeping the tip still. It solves for where the tip is in the controller and remembers it in this browser. Until then the tip is where the controller's ray starts, which can be a couple of centimetres off.
+
+The panel shows the tip's height above the floor and its distance from the last point, so it doubles as a tape measure. A new session starts a new room (its origin is wherever the headset started), so **export before leaving XR** if you want to keep a scan.
+
 ## Develop
 
 ```sh
@@ -54,6 +70,7 @@ The room is kept after the session ends, so you can leave XR and orbit around it
 | Style: Wireframe / Solid / Occlusion | Room, `Y` | Room |
 | Obstacle map on or off; cell size 5 / 10 / 20 cm | Room, `O` | Room |
 | Probe a surface | Hover over it | Point the controller ray at it |
+| Scan: mode, box label, build, undo, calibrate | Scan | Scan; then the right trigger records, A builds, B undoes |
 | Room Setup (Space Setup) | — | Room (Quest Browser) |
 | Export the room as .glb | Room, `X` | Room |
 | Clear Room | Room | Room: the session refills it from the headset |
@@ -68,6 +85,8 @@ The room is kept after the session ends, so you can leave XR and orbit around it
 - `src/Scene.jsx`: backdrop, lights, locomotion, the panel, and the room layers inside the XR origin
 - `src/room.js`: the room snapshot, label colours, the obstacle grid and its distance field, and .glb export
 - `src/Room.jsx`: `RoomSensor` (reads the session's planes, meshes and boundary each few frames), `RoomModel`, `ObstacleMap`, `ProbeMarker`, `BoundsOutline`
+- `src/scan.js`: touch-to-scan: the scan in progress, building walls, boxes and point clouds from it, Undo, and tip calibration
+- `src/Scan.jsx`: `Scanner`, which reads the right controller, records points and draws the scan in progress
 - `src/menu.js`: the options menu, its Room and Video submenus and dropdowns, shared by both panels
 - `src/XRMenuPanel.jsx`, `src/Icon.jsx`, `src/Gaze.jsx`, `src/Grab.jsx`, `src/grip.js`: the XR panel, its icons, gaze dwell-to-click, and carrying the panel
 - `src/SideBySide.jsx`, `src/Interlaced.jsx`, `src/PhoneStereo.jsx`, `src/Cardboard.jsx`, `src/CardboardLens.js`: the view modes, from xr-music
@@ -75,4 +94,5 @@ The room is kept after the session ends, so you can leave XR and orbit around it
 ## Ideas for next steps
 
 - On a Quest 3, add `depth-sensing` for live occlusion and to catch things Space Setup doesn't know about (people, a chair you moved).
-- Keep the obstacle map across sessions with anchors, so a second visit doesn't depend on where the headset started.
+- Keep the obstacle map and scans across sessions with anchors, so a second visit doesn't depend on where the headset started.
+- More scan shapes: a flat surface from three or more points on it (a table top, a door), or walls snapped square.

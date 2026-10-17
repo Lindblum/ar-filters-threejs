@@ -4,6 +4,8 @@
 // on its right), or opens a dropdown list of choices beneath it (a chevron
 // on its right).
 
+import { BOX_LABELS, SCAN_MODES } from './scan.js';
+
 export const MENU_TITLE = 'Room Mesh';
 
 /** Options → Background, in list order (passthrough last). */
@@ -71,8 +73,8 @@ export function splitLabel(label) {
 }
 
 /** Submenus. The top page links to each; each starts with a Back button. */
-export const PAGES = ['main', 'room', 'video'];
-const PAGE_TITLES = { main: MENU_TITLE, room: 'Room', video: 'Video' };
+export const PAGES = ['main', 'room', 'scan', 'video'];
+const PAGE_TITLES = { main: MENU_TITLE, room: 'Room', scan: 'Scan', video: 'Video' };
 export const PAGE_PREFIX = 'page:';
 
 export const menuTitle = (page) => PAGE_TITLES[page];
@@ -99,14 +101,19 @@ const STYLE_LABELS = { wireframe: 'Wireframe', solid: 'Solid', occlusion: 'Occlu
 export const CELL_SIZES = [0.05, 0.1, 0.2];
 const cellLabel = (m) => `${Math.round(m * 100)} cm`;
 
+/** Scan → Mode: what the controller's tip records (see scan.js). */
+const SCAN_MODE_LABELS = { off: 'Off', points: 'Points', walls: 'Walls', box: 'Box' };
+const SCAN_MODE_ICONS = { off: 'probe', points: 'points', walls: 'planes', box: 'box' };
+const capitalise = (s) => s[0].toUpperCase() + s.slice(1);
+
 /** The dropdowns' ids. */
-export const DROPDOWNS = ['style', 'cell', 'background', 'view'];
+export const DROPDOWNS = ['style', 'cell', 'scanMode', 'scanLabel', 'background', 'view'];
 
 /** The on / off settings, by button id. */
-export const TOGGLES = ['planes', 'meshes', 'obstacles'];
+export const TOGGLES = ['planes', 'meshes', 'obstacles', 'scans'];
 
 /** One-shot actions, by button id. */
-export const ACTIONS = ['roomCapture', 'export', 'clear'];
+export const ACTIONS = ['roomCapture', 'export', 'clear', 'scanBuild', 'scanUndo', 'scanCalibrate', 'scanClear'];
 
 /**
  * The choices behind each dropdown on this device, in list order. App
@@ -116,6 +123,8 @@ export function dropdownChoices(env) {
   return {
     style: STYLES,
     cell: CELL_SIZES,
+    scanMode: SCAN_MODES,
+    scanLabel: BOX_LABELS,
     background: availableBackgrounds(env),
     view: env.views ?? ['normal'],
   };
@@ -156,6 +165,46 @@ function roomItems(state, env) {
     },
     { id: 'export', label: 'Export Room (.glb)', icon: 'download', disabled: !env.hasRoom, title: 'Shortcut: X' },
     { id: 'clear', label: 'Clear Room', icon: 'clear', disabled: !env.hasRoom },
+  ];
+}
+
+/**
+ * `env.scanPending`: points wait to become a shape; `env.canUndo`: there is
+ * something to undo; `env.hasScans`: anything has been scanned.
+ */
+function scanItems(state, env) {
+  const shaping = state.scanMode === 'walls' || state.scanMode === 'box';
+  return [
+    {
+      id: 'scanMode',
+      label: `Mode: ${SCAN_MODE_LABELS[state.scanMode]}`,
+      icon: SCAN_MODE_ICONS[state.scanMode],
+      title: "Touch real surfaces with the right controller's tip and press the trigger",
+      dropdown: dropdown(
+        state,
+        'scanMode',
+        SCAN_MODES.map((m) => SCAN_MODE_LABELS[m]),
+        SCAN_MODES.indexOf(state.scanMode),
+        SCAN_MODES.map((m) => SCAN_MODE_ICONS[m]),
+      ),
+    },
+    {
+      id: 'scanLabel',
+      label: `Box Label: ${capitalise(state.scanLabel)}`,
+      icon: 'tag',
+      disabled: state.scanMode !== 'box',
+      dropdown: dropdown(state, 'scanLabel', BOX_LABELS.map(capitalise), BOX_LABELS.indexOf(state.scanLabel)),
+    },
+    { id: 'scanBuild', label: 'Build Shape (A)', icon: 'check', disabled: !(shaping && env.scanPending) },
+    { id: 'scanUndo', label: 'Undo (B)', icon: 'undo', disabled: !env.canUndo },
+    {
+      id: 'scanCalibrate',
+      label: 'Calibrate Tip',
+      icon: 'probe',
+      title: 'Hold the tip on one spot, hold the trigger and swivel the controller: it learns where the tip is',
+    },
+    { id: 'scans', label: `Scans: ${onOff(state.scans)}`, icon: 'mesh' },
+    { id: 'scanClear', label: 'Clear Scans', icon: 'clear', disabled: !env.hasScans },
   ];
 }
 
@@ -205,20 +254,23 @@ const BACK = { id: `${PAGE_PREFIX}main`, label: 'Back', icon: 'back' };
  * right. `dropdown`: { open, options: [{ id, label, selected }] }, drawn
  * with a chevron at the far right and, when open, its options beneath.
  * `env`: { xrSupported, passthroughAvailable, checking, views (available),
- * roomCapture, hasRoom }.
+ * roomCapture, hasRoom, scanPending, canUndo, hasScans }.
  */
 export function menuItems(state, env) {
   if (state.page === 'room') return [BACK, ...roomItems(state, env)];
+  if (state.page === 'scan') return [BACK, ...scanItems(state, env)];
   if (state.page === 'video') return [BACK, ...videoItems(state, env)];
   return [
     { id: `${PAGE_PREFIX}room`, label: 'Room', icon: 'room', submenu: true },
+    { id: `${PAGE_PREFIX}scan`, label: 'Scan', icon: 'probe', submenu: true },
     { id: `${PAGE_PREFIX}video`, label: 'Video', icon: 'video', submenu: true },
   ];
 }
 
 /** The most buttons any page has, so the XR panel can keep its top edge still when the page changes. */
-const SAMPLE_STATE = { style: STYLES[0], cell: CELL_SIZES[0] };
-export const MENU_ROWS = 1 + Math.max(roomItems(SAMPLE_STATE, {}).length, videoItems(SAMPLE_STATE, {}).length);
+const SAMPLE_STATE = { style: STYLES[0], cell: CELL_SIZES[0], scanMode: SCAN_MODES[0], scanLabel: BOX_LABELS[0] };
+export const MENU_ROWS =
+  1 + Math.max(roomItems(SAMPLE_STATE, {}).length, scanItems(SAMPLE_STATE, {}).length, videoItems(SAMPLE_STATE, {}).length);
 
 /**
  * Every label the buttons can show, on every page, so both panels can size
@@ -227,13 +279,26 @@ export const MENU_ROWS = 1 + Math.max(roomItems(SAMPLE_STATE, {}).length, videoI
  */
 export function possibleLabels(env) {
   const labels = new Set();
-  const base = { planes: true, meshes: true, style: STYLES[0], obstacles: true, cell: CELL_SIZES[0], background: 'solid', view: 'normal' };
+  const base = {
+    planes: true,
+    meshes: true,
+    style: STYLES[0],
+    obstacles: true,
+    cell: CELL_SIZES[0],
+    scanMode: SCAN_MODES[0],
+    scanLabel: BOX_LABELS[0],
+    scans: true,
+    background: 'solid',
+    view: 'normal',
+  };
   const variants = [
     ...STYLES.map((style) => ({ style })),
     ...CELL_SIZES.map((cell) => ({ cell })),
+    ...SCAN_MODES.map((scanMode) => ({ scanMode })),
+    ...BOX_LABELS.map((scanLabel) => ({ scanLabel })),
     ...BACKGROUNDS.map((background) => ({ background })),
     ...VIEWS.map((view) => ({ view })),
-    { planes: false, meshes: false, obstacles: false },
+    { planes: false, meshes: false, obstacles: false, scans: false },
   ];
   for (const page of PAGES)
     for (const v of variants) for (const item of menuItems({ ...base, ...v, page }, env)) labels.add(item.label);

@@ -116,9 +116,9 @@ export function RoomSensor() {
       present.add(entityId(mesh));
       sample(mesh, 'mesh', mesh.meshSpace);
     }
-    // gone from the session: drop it (one that is only untracked this frame stays)
+    // gone from the session: drop it (one that is only untracked this frame stays); scans aren't the session's
     for (const [id, entry] of room.entries)
-      if (!present.has(id)) {
+      if (!present.has(id) && entry.source !== 'scan') {
         entry.geometry.dispose();
         room.entries.delete(id);
         dirty = true;
@@ -173,7 +173,22 @@ function useMaterials(style) {
   };
 }
 
-/** A plane's outline (the boundary edges of its triangles). */
+/** Scanned points, one material per colour. Drawn as is in every style. */
+function usePointsMaterials() {
+  const cache = useMemo(() => new Map(), []);
+  useEffect(
+    () => () => {
+      for (const material of cache.values()) material.dispose();
+    },
+    [cache],
+  );
+  return (color) => {
+    if (!cache.has(color)) cache.set(color, new THREE.PointsMaterial({ color, size: 0.008, toneMapped: false }));
+    return cache.get(color);
+  };
+}
+
+/** A plane's outline, or a scanned box's edges (the sharp edges of its triangles). */
 function PlaneEdges({ geometry, material }) {
   const edges = useMemo(() => new THREE.EdgesGeometry(geometry), [geometry]);
   useEffect(() => () => edges.dispose(), [edges]);
@@ -184,10 +199,13 @@ function PlaneEdges({ geometry, material }) {
  * The snapshot, drawn. Put it inside the XROrigin so it stays on the real
  * room as the player moves. Pointer events on it drive the probe.
  */
-export function RoomModel({ showPlanes, showMeshes, style, probe: probeRef }) {
+export function RoomModel({ showPlanes, showMeshes, showScans, style, probe: probeRef }) {
   useRoomVersion();
   const material = useMaterials(style);
-  const entries = [...getRoom().entries.values()].filter((e) => (e.kind === 'plane' ? showPlanes : showMeshes));
+  const pointsMaterial = usePointsMaterials();
+  const entries = [...getRoom().entries.values()].filter((e) =>
+    e.source === 'scan' ? showScans : e.kind === 'plane' ? showPlanes : showMeshes,
+  );
   // the nearest surface under any pointer: { point, normal (world), distance, label }
   const probe = (e) => {
     e.stopPropagation();
@@ -204,7 +222,19 @@ export function RoomModel({ showPlanes, showMeshes, style, probe: probeRef }) {
   return (
     <group>
       {entries.map((e) => {
+        if (e.kind === 'points')
+          return (
+            <points
+              key={e.id}
+              geometry={e.geometry}
+              material={pointsMaterial(labelColor(e.label))}
+              matrix={e.matrix.clone()}
+              matrixAutoUpdate={false}
+              raycast={() => null}
+            />
+          );
         const m = material(labelColor(e.label));
+        const outlined = e.kind === 'plane' || e.source === 'scan';
         return (
           <group key={e.id} matrix={e.matrix.clone()} matrixAutoUpdate={false}>
             <mesh
@@ -215,8 +245,8 @@ export function RoomModel({ showPlanes, showMeshes, style, probe: probeRef }) {
               onPointerMove={probe}
               onPointerOut={leave}
             />
-            {m.lines && e.kind === 'mesh' && <mesh geometry={e.geometry} material={m.lines} raycast={() => null} />}
-            {m.edges && e.kind === 'plane' && <PlaneEdges geometry={e.geometry} material={m.edges} />}
+            {m.lines && !outlined && <mesh geometry={e.geometry} material={m.lines} raycast={() => null} />}
+            {m.edges && outlined && <PlaneEdges geometry={e.geometry} material={m.edges} />}
           </group>
         );
       })}

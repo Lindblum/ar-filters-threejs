@@ -9,6 +9,7 @@ import { PHONE_AR_SESSION_INIT } from './PhoneStereo.jsx';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
 import { useRoomVersion } from './Room.jsx';
 import { clearRoom, exportRoomGLB, getRoom, roomSummary } from './room.js';
+import { BOX_LABELS, canUndo, clearScans, finishShape, startCalibration, undoScan } from './scan.js';
 import {
   ACTIONS,
   CELL_SIZES,
@@ -93,6 +94,9 @@ function useRoomState() {
   const [style, setStyle] = useState(STYLES[0]);
   const [obstacles, setObstacles] = useState(true);
   const [cell, setCell] = useState(CELL_SIZES[1]);
+  const [scanMode, setScanMode] = useState('off'); // see scan.js
+  const [scanLabel, setScanLabel] = useState(BOX_LABELS[0]);
+  const [scans, setScans] = useState(true);
   const [background, setBackground] = useState('passthrough'); // 'solid' | 'skybox' | 'passthrough'
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
   const [page, setPage] = useState('main'); // the submenu showing, see menu.js
@@ -100,7 +104,7 @@ function useRoomState() {
 
   const actions = useMemo(
     () => ({
-      toggle: (id) => ({ planes: setPlanes, meshes: setMeshes, obstacles: setObstacles })[id]((v) => !v),
+      toggle: (id) => ({ planes: setPlanes, meshes: setMeshes, obstacles: setObstacles, scans: setScans })[id]((v) => !v),
       nextStyle: (step = 1) => setStyle((s) => cycle(STYLES, s, step)),
       toggleMenu: () => setMenuOpen((v) => !v),
       setPage: (p) => {
@@ -111,13 +115,13 @@ function useRoomState() {
       closeDropdown: () => setDropdown(null),
       /** A choice from a dropdown's list (see dropdownChoices), which then closes. */
       pick: (id, choice) => {
-        ({ style: setStyle, cell: setCell, background: setBackground })[id](choice);
+        ({ style: setStyle, cell: setCell, scanMode: setScanMode, scanLabel: setScanLabel, background: setBackground })[id](choice);
         setDropdown(null);
       },
     }),
     [],
   );
-  const state = { planes, meshes, style, obstacles, cell, background, menuOpen, page, dropdown };
+  const state = { planes, meshes, style, obstacles, cell, scanMode, scanLabel, scans, background, menuOpen, page, dropdown };
   return [state, actions];
 }
 
@@ -267,8 +271,22 @@ function Hud({ menu, notes }) {
 // which session features the panel reports, and how it names them
 const FEATURE_NAMES = { 'plane-detection': 'planes', 'mesh-detection': 'meshes', 'hit-test': 'hit test', 'bounded-floor': 'boundary' };
 
+const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+
+/** The scanner's lines (see Scanner's status): what it's doing, the tape measure, and any message. */
+function scanLines(scan) {
+  const lines = [];
+  if (scan.calibrating) lines.push(`Calibrate: tip on one spot, hold trigger, swivel${scan.samples ? ` · ${scan.samples} poses` : ''}`);
+  else if (scan.mode === 'points') lines.push('Points: click for a point, hold to trace');
+  else if (scan.mode === 'walls') lines.push(`Walls: ${plural(scan.pending, 'corner')} · A builds, B undoes`);
+  else if (scan.mode === 'box') lines.push(`Box: ${plural(scan.pending, 'point')} · A builds, B undoes`);
+  lines.push(`Tip: ${scan.height.toFixed(2)} m up${scan.fromLast != null ? `, ${scan.fromLast.toFixed(2)} m from last` : ''}`);
+  if (scan.message) lines.push(scan.message);
+  return lines;
+}
+
 /** The status lines both panels show above the buttons. */
-function statusLines({ inXR, xrLine, summary, features, grid, proximity, probe, obstacles }) {
+function statusLines({ inXR, xrLine, summary, features, grid, proximity, probe, obstacles, scan }) {
   const lines = [];
   if (inXR) {
     const granted = features && Object.keys(FEATURE_NAMES).filter((f) => features.includes(f));
@@ -282,6 +300,9 @@ function statusLines({ inXR, xrLine, summary, features, grid, proximity, probe, 
       ? `Room: ${planes} plane${planes === 1 ? '' : 's'}, ${meshes} mesh${meshes === 1 ? '' : 'es'}, ${triangles.toLocaleString()} triangles`
       : 'Room: nothing detected yet',
   );
+  if (summary.scanned || summary.points)
+    lines.push(`Scanned: ${plural(summary.scanned, 'surface')}, ${plural(summary.points, 'point')}`);
+  if (inXR && scan) lines.push(...scanLines(scan));
   if (obstacles) {
     const near = inXR && proximity != null ? ` · nearest ${proximity.toFixed(2)} m` : '';
     lines.push(
@@ -296,10 +317,12 @@ export default function App() {
   const [state, actions] = useRoomState();
   const roomVersion = useRoomVersion();
   const summary = useMemo(roomSummary, [roomVersion]);
-  const hasRoom = summary.planes + summary.meshes > 0;
+  const hasScans = summary.scanned + summary.points > 0;
+  const hasRoom = summary.planes + summary.meshes > 0 || hasScans;
   const [grid, setGrid] = useState(null);
   const [proximity, setProximity] = useState(null);
   const [probe, setProbe] = useState(null);
+  const [scanStatus, setScanStatus] = useState(null); // the scanner's report, in XR
 
   const support = useXRSupport();
   const session = useSyncExternalStore(store.subscribe, getSession);
@@ -317,6 +340,9 @@ export default function App() {
   // derived from the session, so the panel can never disagree with what is showing
   const view = inXR ? (phone ? (phoneStereo ? 'phoneViewer' : 'phoneAR') : 'xr') : screenView;
   const [error, setError] = useState(null);
+  useEffect(() => {
+    if (!sessionActive) setScanStatus(null);
+  }, [sessionActive]);
   // Quest Browser only: opens Space Setup, to scan or redraw the room
   const roomCapture = typeof session?.initiateRoomCapture === 'function';
 
@@ -328,6 +354,10 @@ export default function App() {
         setError(`Couldn't export the room: ${describe(e)}`);
       });
     } else if (id === 'clear') clearRoom();
+    else if (id === 'scanBuild') finishShape(state.scanMode, state.scanLabel);
+    else if (id === 'scanUndo') undoScan();
+    else if (id === 'scanCalibrate') startCalibration();
+    else if (id === 'scanClear') clearScans();
     else if (id === 'roomCapture' && roomCapture) {
       session.initiateRoomCapture().catch((e) => {
         console.warn('[room-mesh] room capture refused', e);
@@ -426,8 +456,19 @@ export default function App() {
     proximity,
     probe,
     obstacles: state.obstacles,
+    scan: scanStatus,
   });
-  const env = { xrSupported, passthroughAvailable, checking: !support.checked, views, roomCapture, hasRoom };
+  const env = {
+    xrSupported,
+    passthroughAvailable,
+    checking: !support.checked,
+    views,
+    roomCapture,
+    hasRoom,
+    scanPending: (scanStatus?.pending ?? 0) > 0,
+    canUndo: canUndo(),
+    hasScans,
+  };
   const labels = useMemo(() => possibleLabels({ xrSupported, passthroughAvailable, views }), [xrSupported, passthroughAvailable, views]);
   const menu = {
     title: menuTitle(state.page),
@@ -459,6 +500,7 @@ export default function App() {
             onGrid={setGrid}
             onProximity={setProximity}
             onProbe={setProbe}
+            onScan={setScanStatus}
           />
         </XR>
       </Canvas>

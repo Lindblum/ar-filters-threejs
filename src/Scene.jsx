@@ -11,6 +11,7 @@ import { CameraBackground, CardboardRig } from './Cardboard.jsx';
 import { GazeReticle } from './Gaze.jsx';
 import { PhoneStereoCameraFeed, PhoneStereoXR } from './PhoneStereo.jsx';
 import { BoundsOutline, ObstacleMap, ProbeMarker, RoomModel, RoomSensor } from './Room.jsx';
+import { Scanner } from './Scan.jsx';
 import { SOLID_BACKGROUND } from './menu.js';
 
 // The windowed view looks down at the room from above and behind the spot
@@ -197,7 +198,7 @@ function FloorGrid() {
   return <gridHelper args={[10, 20, '#5a6278', '#3a4052']} raycast={() => null} />;
 }
 
-export default function Scene({ state, menu, phone, onGrid, onProximity, onProbe }) {
+export default function Scene({ state, menu, phone, onGrid, onProximity, onProbe, onScan }) {
   const inSession = useXR((s) => s.mode === 'immersive-vr' || s.mode === 'immersive-ar');
   const inAR = useXR((s) => s.mode === 'immersive-ar');
   // a phone's AR session drawn as two lens-corrected eyes
@@ -214,6 +215,7 @@ export default function Scene({ state, menu, phone, onGrid, onProximity, onProbe
   useEffect(() => setCameraFailed(false), [cameraPassthrough]);
   const origin = useRef(null);
   const menuPanel = useRef(null);
+  const shownPanel = useRef(null); // whichever panel is showing, docked or not, so the scanner leaves its presses alone
   const probe = useRef(null); // the room surface under a pointer, see RoomModel
 
   return (
@@ -243,24 +245,29 @@ export default function Scene({ state, menu, phone, onGrid, onProximity, onProbe
       {!inSession && <FloorGrid />}
       <RoomSensor />
       <Player origin={origin} menu={menuPanel}>
-        <RoomModel showPlanes={state.planes} showMeshes={state.meshes} style={state.style} probe={probe} />
+        <RoomModel showPlanes={state.planes} showMeshes={state.meshes} showScans={state.scans} style={state.style} probe={probe} />
         <BoundsOutline />
         {state.obstacles && <ObstacleMap cell={state.cell} origin={origin} onGrid={onGrid} onProximity={onProximity} />}
         {immersive &&
           (docked && inSession ? (
             // no groupRef: a docked panel can't be carried off by a grip
             <LeftControllerDock>
-              <XRMenuPanel {...menu} position={DOCK_POSITION} rotation={DOCK_ROTATION} scale={DOCK_SCALE} />
+              <group ref={shownPanel}>
+                <XRMenuPanel {...menu} position={DOCK_POSITION} rotation={DOCK_ROTATION} scale={DOCK_SCALE} />
+              </group>
             </LeftControllerDock>
           ) : (
-            <XRMenuPanel
-              {...menu}
-              groupRef={menuPanel}
-              position={MENU_POSITION}
-              rotation={MENU_ROTATION}
-              scale={phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1}
-            />
+            <group ref={shownPanel}>
+              <XRMenuPanel
+                {...menu}
+                groupRef={menuPanel}
+                position={MENU_POSITION}
+                rotation={MENU_ROTATION}
+                scale={phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1}
+              />
+            </group>
           ))}
+        {inSession && <Scanner mode={state.scanMode} label={state.scanLabel} panels={[shownPanel]} onStatus={onScan} />}
       </Player>
       <ProbeMarker probe={probe} />
       <ProbeReporter probe={probe} onReport={onProbe} />

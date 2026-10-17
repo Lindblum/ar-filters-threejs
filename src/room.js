@@ -12,7 +12,8 @@ import * as THREE from 'three';
 //   Quest 3 / 3S, the scanned "global mesh" of the whole room.
 // Each frame RoomSensor copies them into this snapshot, in the coordinates
 // of the XROrigin (y up, the floor at 0), so the room stays drawn, and
-// exportable, after the session ends.
+// exportable, after the session ends. Touch-to-scan (scan.js) adds what the
+// controller measures to the same snapshot.
 
 /** Colours by semantic label, as Space Setup names them. */
 export const LABEL_COLORS = {
@@ -35,12 +36,14 @@ export const LABEL_COLORS = {
   storage: '#d0a060',
   shelf: '#d0a060',
   'global mesh': '#e8ecf6',
+  'scan points': '#7dffb0',
   other: '#e8ecf6',
 };
 export const labelColor = (label) => LABEL_COLORS[label?.toLowerCase()] ?? LABEL_COLORS.other;
 
 /**
- * The snapshot: id -> { id, kind: 'plane' | 'mesh', label, geometry
+ * The snapshot: id -> { id, kind: 'plane' | 'mesh' | 'points', source
+ * ('scan' for touch-to-scan, else the session's), label, geometry
  * (BufferGeometry in the entity's own space), matrix (its pose in origin
  * space), triangles, changed (the entity's lastChangedTime) }. `version`
  * bumps on every change, for useSyncExternalStore.
@@ -101,19 +104,27 @@ export function meshGeometry(mesh) {
 
 export const triangleCount = (geometry) => (geometry.index ? geometry.index.count : (geometry.attributes.position?.count ?? 0)) / 3;
 
-/** Counts for the panels: planes, meshes, triangles and the labels seen. */
+/**
+ * Counts for the panels: the session's planes, meshes and triangles, the
+ * scanned surfaces and points, and the labels seen.
+ */
 export function roomSummary() {
   let planes = 0;
   let meshes = 0;
   let triangles = 0;
+  let scanned = 0;
+  let points = 0;
   const labels = new Map();
   for (const e of room.entries.values()) {
-    if (e.kind === 'plane') planes++;
+    if (e.source === 'scan') {
+      if (e.kind === 'points') points += e.geometry.attributes.position.count;
+      else scanned++;
+    } else if (e.kind === 'plane') planes++;
     else meshes++;
-    triangles += e.triangles;
+    if (e.source !== 'scan') triangles += e.triangles;
     labels.set(e.label, (labels.get(e.label) ?? 0) + 1);
   }
-  return { planes, meshes, triangles, labels };
+  return { planes, meshes, triangles, scanned, points, labels };
 }
 
 // ---------------------------------------------------------------------------
@@ -174,7 +185,7 @@ function sampleTriangle(a, b, c, step, fn) {
 }
 
 /** The floor's height: the lowest floor plane, else 0 (a local-floor space puts it there). */
-function floorHeight(entries) {
+export function floorHeight(entries) {
   let y = Infinity;
   for (const e of entries) if (e.kind === 'plane' && e.label === 'floor') y = Math.min(y, e.matrix.elements[13]);
   return Number.isFinite(y) ? y : 0;
@@ -225,7 +236,10 @@ export function buildObstacleGrid(cell = 0.1) {
   const markObstacle = mark(OBSTACLE);
   for (const e of entries) {
     if (e.label === 'floor' || e.label === 'ceiling') continue;
-    forEachTriangle(e, (a, b, c) => sampleTriangle(a, b, c, step, markObstacle));
+    if (e.kind === 'points') {
+      const pos = e.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i++) markObstacle(_p.fromBufferAttribute(pos, i).applyMatrix4(e.matrix));
+    } else forEachTriangle(e, (a, b, c) => sampleTriangle(a, b, c, step, markObstacle));
   }
   let obstacles = 0;
   for (const v of cells) if (v === OBSTACLE) obstacles++;
@@ -271,17 +285,21 @@ export function distanceAt(grid, x, z) {
 
 // ---------------------------------------------------------------------------
 
-/** Saves the snapshot as a .glb, each surface a node named by its label, in origin space. */
+/**
+ * Saves the snapshot as a .glb, each surface (or scanned point cloud) a node
+ * named by its label, in origin space.
+ */
 export async function exportRoomGLB() {
   const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
   const scene = new THREE.Scene();
   scene.name = 'Room';
   for (const e of room.entries.values()) {
-    const mesh = new THREE.Mesh(
-      e.geometry.clone(),
-      new THREE.MeshStandardMaterial({ color: labelColor(e.label), side: THREE.DoubleSide }),
-    );
-    mesh.name = `${e.kind} ${e.id}: ${e.label}`;
+    const color = labelColor(e.label);
+    const mesh =
+      e.kind === 'points'
+        ? new THREE.Points(e.geometry.clone(), new THREE.PointsMaterial({ color, size: 0.01 }))
+        : new THREE.Mesh(e.geometry.clone(), new THREE.MeshStandardMaterial({ color, side: THREE.DoubleSide }));
+    mesh.name = `${e.source === 'scan' ? 'scan' : e.kind} ${e.id}: ${e.label}`;
     mesh.matrix.copy(e.matrix);
     mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
     scene.add(mesh);
