@@ -5,17 +5,6 @@ import * as THREE from 'three';
 // is drawn into a render target then and read back asynchronously (a pixel
 // buffer and a fence, via three), which doesn't stall the frame.
 
-/** The image's long side, in pixels: a multiple of 14, as Depth Anything's patches need. */
-export const CAPTURE_LONG = 392;
-
-/** Width and height for an image of `aspect` (width / height), both multiples of 14. */
-export function captureSize(aspect) {
-  const round14 = (n) => Math.max(14, Math.round(n / 14) * 14);
-  return aspect >= 1
-    ? { width: CAPTURE_LONG, height: round14(CAPTURE_LONG / aspect) }
-    : { width: round14(CAPTURE_LONG * aspect), height: CAPTURE_LONG };
-}
-
 export class CameraCapture {
   constructor() {
     this.target = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false, type: THREE.UnsignedByteType });
@@ -45,11 +34,11 @@ export class CameraCapture {
   }
 
   /**
-   * Draws the camera texture into the target now (during the XR frame) and
-   * resolves with { rgba, width, height } once the GPU has it.
+   * Draws the camera texture into the target at `size` ({ width, height })
+   * now (during the XR frame) and resolves with { rgba, width, height } once
+   * the GPU has it.
    */
-  captureTexture(gl, texture, aspect) {
-    const { width, height } = captureSize(aspect);
+  captureTexture(gl, texture, { width, height }) {
     if (this.target.width !== width || this.target.height !== height) this.target.setSize(width, height);
     this.material.uniforms.map.value = texture;
     const previous = gl.getRenderTarget();
@@ -65,8 +54,7 @@ export class CameraCapture {
   }
 
   /** The same from a playing <video> (the desktop test feed), synchronously. */
-  captureVideo(video) {
-    const { width, height } = captureSize(video.videoWidth / video.videoHeight);
+  captureVideo(video, { width, height }) {
     if (!this.canvas) this.canvas = new OffscreenCanvas(width, height);
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;

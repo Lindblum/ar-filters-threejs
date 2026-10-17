@@ -14,7 +14,6 @@ export const FILTERS = [
   'cartoon',
   'night',
   'thermal',
-  'pixelate',
   'depthColor',
   'depthFog',
   'depthOutline',
@@ -29,7 +28,6 @@ export const FILTER_LABELS = {
   cartoon: 'Cartoon',
   night: 'Night Vision',
   thermal: 'Thermal',
-  pixelate: 'Pixelate',
   depthColor: 'Depth Colours',
   depthFog: 'Depth Fog',
   depthOutline: 'Depth Outlines',
@@ -49,6 +47,9 @@ export function setFilter(name) {
   filterUniforms.filterId.value = Math.max(0, FILTERS.indexOf(name));
 }
 
+// filterId values by name, from FILTERS: F_GRAYSCALE, F_DEPTH_COLOR, ...
+const FILTER_DEFINES = FILTERS.map((name, i) => `#define F_${name.replace(/[A-Z]/g, (c) => `_${c}`).toUpperCase()} ${i}`).join('\n');
+
 /**
  * GLSL: vec3 applyFilter(sampler2D map, vec2 uv, vec2 texel, float depth,
  * float depthEdge). `map` is the camera image (sRGB values), `uv` where
@@ -61,6 +62,7 @@ export function setFilter(name) {
  * that look at neighbouring pixels fall back to their plain-colour part.
  */
 export const FILTER_GLSL = /* glsl */ `
+${FILTER_DEFINES}
   uniform int filterId;
   uniform float filterTime;
 
@@ -105,34 +107,30 @@ export const FILTER_GLSL = /* glsl */ `
   float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 
   vec3 filterColor(vec3 c, vec2 uv, float depth, float depthEdge) {
-    if (filterId == 1) return vec3(luma(c));
-    if (filterId == 2) {
+    if (filterId == F_GRAYSCALE) return vec3(luma(c));
+    if (filterId == F_SEPIA) {
       return clamp(vec3(dot(c, vec3(0.393, 0.769, 0.189)), dot(c, vec3(0.349, 0.686, 0.168)), dot(c, vec3(0.272, 0.534, 0.131))), 0.0, 1.0);
     }
-    if (filterId == 3) return 1.0 - c;
-    if (filterId == 4) return floor(c * 4.0 + 0.5) / 4.0;
-    if (filterId == 5) return c * 0.12; // edges: the dark ground they're drawn on
-    if (filterId == 6) return floor(c * 5.0 + 0.5) / 5.0; // cartoon: the flat colours
-    if (filterId == 7) {
+    if (filterId == F_INVERT) return 1.0 - c;
+    if (filterId == F_POSTERIZE) return floor(c * 4.0 + 0.5) / 4.0;
+    if (filterId == F_EDGES) return c * 0.12; // edges: the dark ground they're drawn on
+    if (filterId == F_CARTOON) return floor(c * 5.0 + 0.5) / 5.0; // cartoon: the flat colours
+    if (filterId == F_NIGHT) {
       float g = pow(luma(c), 0.6) * 1.6 + (hash(uv * 911.0 + filterTime) - 0.5) * 0.18;
       return vec3(0.15, 1.0, 0.25) * clamp(g, 0.0, 1.0);
     }
-    if (filterId == 8) return ironbow(smoothstep(0.05, 0.95, luma(c)));
+    if (filterId == F_THERMAL) return ironbow(smoothstep(0.05, 0.95, luma(c)));
     if (depth < 0.0) return c; // the rest need depth
-    if (filterId == 10) return turbo(1.0 - clamp(log(depth / 0.3) / log(20.0), 0.0, 1.0)); // 0.3 m red .. 6 m blue
-    if (filterId == 11) return mix(c, vec3(0.78, 0.82, 0.88), 1.0 - exp(-depth * 0.45));
-    if (filterId == 12) return mix(c, vec3(0.0), smoothstep(0.03, 0.12, depthEdge));
+    if (filterId == F_DEPTH_COLOR) return turbo(1.0 - clamp(log(depth / 0.3) / log(20.0), 0.0, 1.0)); // 0.3 m red .. 6 m blue
+    if (filterId == F_DEPTH_FOG) return mix(c, vec3(0.78, 0.82, 0.88), 1.0 - exp(-depth * 0.45));
+    if (filterId == F_DEPTH_OUTLINE) return mix(c, vec3(0.0), smoothstep(0.03, 0.12, depthEdge));
     return c;
   }
 
   vec3 applyFilter(sampler2D map, vec2 uv, vec2 texel, float depth, float depthEdge) {
-    if (filterId == 9) {
-      vec2 block = texel * 10.0;
-      return texture2D(map, (floor(uv / block) + 0.5) * block).rgb;
-    }
     vec3 c = texture2D(map, uv).rgb;
-    if (filterId == 5) return mix(c * 0.12, vec3(0.75, 1.0, 1.0), smoothstep(0.15, 0.6, sobel(map, uv, texel)));
-    if (filterId == 6) {
+    if (filterId == F_EDGES) return mix(c * 0.12, vec3(0.75, 1.0, 1.0), smoothstep(0.15, 0.6, sobel(map, uv, texel)));
+    if (filterId == F_CARTOON) {
       vec3 flat_ = floor(c * 5.0 + 0.5) / 5.0;
       return flat_ * (1.0 - smoothstep(0.25, 0.55, sobel(map, uv, texel * 1.5)));
     }

@@ -7,10 +7,12 @@ import Icon from './Icon.jsx';
 import { MENU_TOGGLE } from './XRMenuPanel.jsx';
 import { PHONE_AR_SESSION_INIT } from './PhoneStereo.jsx';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
+import { MODELS } from './depth/ml.js';
 import { useDepthStatus } from './depth/store.js';
 import { FILTERS, setFilter } from './filters.js';
 import { useTestFeed } from './testFeed.js';
 import {
+  DEPTH_MODE_LABELS,
   DROPDOWNS,
   TOGGLES,
   XR_VIEWS,
@@ -85,7 +87,9 @@ const describe = (e) => `${e?.name ?? 'Error'}${e?.message ? ` - ${e.message}` :
 function useAppState() {
   const [depthMode, setDepthMode] = useState('auto'); // see depth/DepthSource.jsx
   const [depthMesh, setDepthMesh] = useState(true); // the camera drawn at its depth, not flat
+  const [smoothing, setSmoothing] = useState('medium'); // see depth/smooth.js
   const [strength, setStrength] = useState(1); // the phone viewer's eye separation, times true scale
+  const [periphery, setPeriphery] = useState('outfill'); // the phone viewer beyond the camera: 'black' | 'outfill' | 'stretch'
   const [filter, setFilterName] = useState('none');
   const [background, setBackground] = useState('passthrough'); // 'solid' | 'skybox' | 'passthrough' | 'testFeed'
   const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
@@ -105,13 +109,13 @@ function useAppState() {
       closeDropdown: () => setDropdown(null),
       /** A choice from a dropdown's list (see dropdownChoices), which then closes. */
       pick: (id, choice) => {
-        ({ depthMode: setDepthMode, strength: setStrength, filter: setFilterName, background: setBackground })[id](choice);
+        ({ depthMode: setDepthMode, smoothing: setSmoothing, strength: setStrength, periphery: setPeriphery, filter: setFilterName, background: setBackground })[id](choice);
         setDropdown(null);
       },
     }),
     [],
   );
-  const state = { depthMode, depthMesh, strength, filter, background, menuOpen, page, dropdown };
+  const state = { depthMode, smoothing, depthMesh, strength, periphery, filter, background, menuOpen, page, dropdown };
   return [state, actions];
 }
 
@@ -255,32 +259,43 @@ function Hud({ menu, notes }) {
 // which session features the panel reports, and how it names them
 const FEATURE_NAMES = { 'camera-access': 'camera', 'depth-sensing': 'depth', 'hit-test': 'hit test' };
 
-const SOURCE_NAMES = { arcore: 'ARCore', 'arcore+ml': 'ARCore + ML', ml: 'ML', test: 'ML (test feed)' };
+const sourceName = (source) => (source === 'arcore+da2' ? 'ARCore + Depth Anything V2' : DEPTH_MODE_LABELS[source]);
 
-/** The depth lines: where depth comes from, how fast, and how sure its scale is. */
-function depthLines(depth, active) {
+/** The depth lines: the algorithm, how fast, how sure its scale is, and any model download. */
+function depthLines(depth, active, mode) {
   const { ml } = depth;
   const lines = [];
-  if (ml.state === 'loading') lines.push(`Depth model: ${ml.progress ? `downloading ${ml.progress}%` : 'loading'}`);
-  else if (ml.state === 'failed') lines.push(`Depth model failed: ${ml.error}`);
+  const model = ml.model && MODELS[ml.model];
+  if (model && ml.state === 'loading')
+    lines.push(`${model.name}: ${ml.progress ? `downloading ${ml.progress}% of ${model.mb} MB` : 'loading'}`);
+  else if (model && ml.state === 'failed') lines.push(`${model.name} failed: ${ml.error}`);
   if (!active) return lines;
   if (!depth.source) {
-    lines.push(depth.arcore === 'gpu' ? 'Depth: ARCore depth is GPU-only here, waiting for the model' : 'Depth: none yet');
+    if ((mode === 'arcore' || mode === 'auto') && depth.arcore !== 'cpu')
+      lines.push(depth.arcore === 'gpu' ? 'Depth: ARCore depth is GPU-only here' : 'Depth: this phone gives no ARCore depth');
+    else lines.push(mode === 'off' ? 'Depth: off' : 'Depth: none yet');
     return lines;
   }
-  const parts = [SOURCE_NAMES[depth.source]];
-  if (depth.rawSize) parts[0] += ` ${depth.rawSize[0]}×${depth.rawSize[1]}`;
-  if (ml.ms != null && depth.source !== 'arcore') parts.push(`${ml.ms} ms`);
+  const parts = [`${sourceName(depth.source)}${depth.test ? ' (test feed)' : ''}`];
+  if (depth.rawSize && depth.source.startsWith('arcore')) parts[0] += ` ${depth.rawSize[0]}×${depth.rawSize[1]}`;
+  const fromModel = MODELS[depth.source.replace('arcore+', '')];
+  if (depth.source !== 'arcore') parts.push(`${fromModel && ml.ms != null ? ml.ms : depth.ms} ms`);
   if (ml.slow && depth.source === 'arcore') parts.push('model too slow');
   const fit = depth.fit;
   if (fit?.assumed) parts.push('scale assumed');
-  else if (fit) parts.push(`scale ±${fit.error.toFixed(2)} m${depth.source === 'ml' ? ` from ${depth.anchors} hits` : ''}`);
+  else if (fit) parts.push(`scale ±${fit.error.toFixed(2)} m${depth.rawSize ? '' : ` from ${depth.anchors} hits`}`);
+  if (depth.parallax)
+    parts.push(
+      depth.parallax.baseline < 2
+        ? 'move the phone sideways'
+        : `${depth.parallax.baseline} cm baseline, ${depth.parallax.tracked}% tracked`,
+    );
   lines.push(`Depth: ${parts.join(' · ')}`);
   return lines;
 }
 
 /** The status lines both panels show above the buttons. */
-function statusLines({ inXR, xrLine, features, depth, depthActive }) {
+function statusLines({ inXR, xrLine, features, depth, depthActive, depthMode }) {
   const lines = [];
   if (inXR) {
     const granted = features && Object.keys(FEATURE_NAMES).filter((f) => features.includes(f));
@@ -288,7 +303,7 @@ function statusLines({ inXR, xrLine, features, depth, depthActive }) {
       granted ? `${xrLine} · ${granted.length ? granted.map((f) => FEATURE_NAMES[f]).join(', ') : 'no camera or depth'}` : xrLine,
     );
   }
-  lines.push(...depthLines(depth, depthActive));
+  lines.push(...depthLines(depth, depthActive, depthMode));
   return lines;
 }
 
@@ -403,6 +418,7 @@ export default function App() {
     features: session?.enabledFeatures,
     depth,
     depthActive: (sessionActive && sessionMode === 'immersive-ar') || Boolean(testFeed.video),
+    depthMode: state.depthMode,
   });
   const env = { xrSupported, passthroughAvailable, testFeedAvailable, checking: !support.checked, views };
   const labels = useMemo(

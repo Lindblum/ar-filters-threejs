@@ -62,6 +62,16 @@ function median(values) {
   return s.length ? s[s.length >> 1] : 0;
 }
 
+/** The 2nd and 98th percentiles of relative values (from a subsample), for assumedFit. */
+export function valueRange(values) {
+  const stride = Math.max(1, Math.floor(values.length / 4096));
+  const sample = [];
+  for (let i = 0; i < values.length; i += stride) sample.push(values[i]);
+  sample.sort((a, b) => a - b);
+  const at = (q) => sample[Math.min(sample.length - 1, Math.floor(q * sample.length))];
+  return [at(0.02), at(0.98)];
+}
+
 /** A guess for when nothing is metric: the model's 2nd-98th percentiles span NEAR..FAR metres. */
 export function assumedFit(min, max) {
   const a = (1 / NEAR - 1 / FAR) / Math.max(max - min, 1e-6);

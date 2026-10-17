@@ -27,7 +27,8 @@ import { FILTER_GLSL, filterUniforms } from './filters.js';
 // else, all the way round, it shows the outfill: the image's edge carried
 // outward and blurred more the further it goes (mip levels of a small copy
 // of the image), so the viewer's periphery, which the camera never sees,
-// has the room's colours and light instead of black. Nothing is stretched.
+// has the room's colours and light instead of black. Or, with the outfill
+// off (Periphery: Black), black beyond a soft edge.
 
 const TEAR = 0.12;
 const DOME_QUANTILE = 0.75; // the dome sits behind most of the scene
@@ -83,11 +84,12 @@ const surfaceMaterial = () =>
 
 const domeMaterial = () =>
   new THREE.ShaderMaterial({
-    uniforms: { ...uniforms(), outfill: { value: null }, domeDepth: { value: DOME_DEFAULT } },
+    uniforms: { ...uniforms(), outfill: { value: null }, outfillOn: { value: 1 }, domeDepth: { value: DOME_DEFAULT } },
     vertexShader: VERTEX,
     fragmentShader: /* glsl */ `
       ${HEADER}
       uniform sampler2D outfill; // the camera image, small, with mip levels
+      uniform float outfillOn; // 0: black beyond the image
       uniform float domeDepth;
       const float FEATHER = 0.04; // uv inside the edge over which the sharp image fades into the outfill
       const float EDGE_LOD = 3.0; // the outfill's blur at the edge (128 px / 2^3 = 16 px across)
@@ -103,7 +105,7 @@ const domeMaterial = () =>
         float inside = min(min(edge.x, 1.0 - edge.x), min(edge.y, 1.0 - edge.y));
         float lod = min(EDGE_LOD + outside * LOD_PER_UV, 7.0);
         vec3 blurred = textureLod(outfill, edge, lod).rgb * mix(1.0, 0.8, smoothstep(0.0, 1.5, outside));
-        vec3 c = filterColor(blurred, edge, domeDepth, 0.0);
+        vec3 c = filterColor(blurred, edge, domeDepth, 0.0) * outfillOn;
         if (outside == 0.0) c = mix(c, applyFilter(map, uv, texel, domeDepth, 0.0), smoothstep(0.0, FEATHER, inside));
         gl_FragColor = vec4(srgbToLinear(c), 1.0);
         #include <colorspace_fragment>
@@ -190,8 +192,12 @@ function gridIndex(depth, width, height) {
 
 const _toWorld = new THREE.Matrix4();
 
-/** `surface`: draw the camera image at its depth; without it, only the dome (flat at the scene's distance). */
-export function DepthPassthrough({ surface = true }) {
+/**
+ * `surface`: draw the camera image at its depth; without it, only the dome
+ * (flat at the scene's distance). `outfill`: fill beyond the camera's view
+ * with the blurred outfill; without it, black.
+ */
+export function DepthPassthrough({ surface = true, outfill: outfillOn = true }) {
   const gl = useThree((s) => s.gl);
   const version = useDepthFrameVersion();
   const mat = useMemo(surfaceMaterial, []);
@@ -242,6 +248,7 @@ export function DepthPassthrough({ surface = true }) {
     filterUniforms.filterTime.value = clock.elapsedTime % 100;
     outfill.update(gl, texture);
     domeMat.uniforms.outfill.value = outfill.target.texture;
+    domeMat.uniforms.outfillOn.value = outfillOn ? 1 : 0;
 
     const d = domeDepth.current;
     d.current += (d.target - d.current) * DOME_EASE;

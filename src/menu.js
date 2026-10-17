@@ -103,16 +103,38 @@ function dropdown(state, id, choices, current, icons) {
   };
 }
 
-/** Depth → Source: where depth comes from (see depth/DepthSource.jsx). */
-export const DEPTH_MODES = ['auto', 'arcore', 'ml', 'off'];
-const DEPTH_MODE_LABELS = { auto: 'Auto', arcore: 'ARCore', ml: 'ML Model', off: 'Off' };
+/** Depth → Source: the depth algorithm (see depth/DepthSource.jsx). */
+export const DEPTH_MODES = ['auto', 'arcore', 'da2', 'da3', 'midas', 'cues', 'ground', 'parallax', 'off'];
+export const DEPTH_MODE_LABELS = {
+  auto: 'Auto',
+  arcore: 'ARCore',
+  da2: 'Depth Anything V2',
+  da3: 'Depth Anything V3',
+  midas: 'MiDaS',
+  cues: 'Scene Cues',
+  ground: 'Ground Plane',
+  parallax: 'Motion Parallax',
+  off: 'Off',
+};
 
 /** Depth → Stereo Strength: the eyes' separation, times true scale. */
 export const STRENGTHS = [0, 0.5, 1, 1.5, 2, 3];
 const strengthLabel = (s) => `${s}×`;
 
+/** Depth → Smoothing: how much of each depth frame is averaged with the last (see depth/smooth.js). */
+export const SMOOTHINGS = ['off', 'low', 'medium', 'high'];
+const SMOOTHING_LABELS = { off: 'Off', low: 'Low', medium: 'Medium', high: 'High' };
+
+/**
+ * Video → Periphery: what the phone viewer shows beyond the camera's view,
+ * which is narrower than the lenses': Black, the blurred Outfill, or the
+ * image Stretched (magnified) to fill the viewer.
+ */
+export const PERIPHERIES = ['black', 'outfill', 'stretch'];
+const PERIPHERY_LABELS = { black: 'Black', outfill: 'Outfill', stretch: 'Stretch' };
+
 /** The dropdowns' ids. */
-export const DROPDOWNS = ['depthMode', 'strength', 'filter', 'background', 'view'];
+export const DROPDOWNS = ['depthMode', 'smoothing', 'strength', 'filter', 'periphery', 'background', 'view'];
 
 /** The on / off settings, by button id. */
 export const TOGGLES = ['depthMesh'];
@@ -127,7 +149,9 @@ export const ACTIONS = [];
 export function dropdownChoices(env) {
   return {
     depthMode: DEPTH_MODES,
+    smoothing: SMOOTHINGS,
     strength: STRENGTHS,
+    periphery: PERIPHERIES,
     filter: FILTERS,
     background: availableBackgrounds(env),
     view: env.views ?? ['normal'],
@@ -142,8 +166,16 @@ function depthItems(state) {
       id: 'depthMode',
       label: `Source: ${DEPTH_MODE_LABELS[state.depthMode]}`,
       icon: 'camera',
-      title: 'Auto: ARCore depth where the phone has it, sharpened by the ML model while it keeps up',
+      title:
+        'Auto: ARCore depth, sharpened by Depth Anything V2 while it keeps up. The models download once (V2 50 MB, V3 105 MB, MiDaS 66 MB). Scene Cues and Ground Plane are instant guesses; Motion Parallax triangulates as you move the phone',
       dropdown: dropdown(state, 'depthMode', DEPTH_MODES.map((m) => DEPTH_MODE_LABELS[m]), DEPTH_MODES.indexOf(state.depthMode)),
+    },
+    {
+      id: 'smoothing',
+      label: `Smoothing: ${SMOOTHING_LABELS[state.smoothing]}`,
+      icon: 'layers',
+      title: 'Averages depth over recent frames to steady it; a real change (something moving) comes through at once',
+      dropdown: dropdown(state, 'smoothing', SMOOTHINGS.map((m) => SMOOTHING_LABELS[m]), SMOOTHINGS.indexOf(state.smoothing)),
     },
     {
       id: 'depthMesh',
@@ -171,6 +203,14 @@ function videoItems(state, env) {
       icon: 'filter',
       title: 'Depth filters need depth: the depth passthrough, in XR or on the test feed',
       dropdown: dropdown(state, 'filter', FILTERS.map((f) => FILTER_LABELS[f]), FILTERS.indexOf(state.filter)),
+    },
+    {
+      id: 'periphery',
+      label: `Periphery: ${PERIPHERY_LABELS[state.periphery]}`,
+      icon: 'phoneViewer',
+      title:
+        "The phone viewer beyond the camera's narrower view. Black; Outfill: the image's edges carried out, blurred; Stretch: the image magnified to fill (turning moves it a little fast)",
+      dropdown: dropdown(state, 'periphery', PERIPHERIES.map((p) => PERIPHERY_LABELS[p]), PERIPHERIES.indexOf(state.periphery)),
     },
     {
       id: 'background',
@@ -226,7 +266,12 @@ export function menuItems(state, env) {
 }
 
 /** The most buttons any page has, so the XR panel can keep its top edge still when the page changes. */
-const SAMPLE_STATE = { depthMode: DEPTH_MODES[0], strength: STRENGTHS[2], filter: FILTERS[0], background: 'solid', view: 'normal' };
+const SAMPLE_STATE = {
+  depthMode: DEPTH_MODES[0],
+  smoothing: SMOOTHINGS[2],
+  strength: STRENGTHS[2],
+  periphery: PERIPHERIES[1],
+  filter: FILTERS[0], background: 'solid', view: 'normal' };
 export const MENU_ROWS = 1 + Math.max(depthItems(SAMPLE_STATE).length, videoItems(SAMPLE_STATE, {}).length);
 
 /**
@@ -240,6 +285,8 @@ export function possibleLabels(env) {
   const variants = [
     ...DEPTH_MODES.map((depthMode) => ({ depthMode })),
     ...STRENGTHS.map((strength) => ({ strength })),
+    ...SMOOTHINGS.map((smoothing) => ({ smoothing })),
+    ...PERIPHERIES.map((periphery) => ({ periphery })),
     ...FILTERS.map((filter) => ({ filter })),
     ...BACKGROUNDS.map((background) => ({ background })),
     ...VIEWS.map((view) => ({ view })),

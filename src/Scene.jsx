@@ -210,11 +210,11 @@ export default function Scene({ state, menu, phone, testFeed }) {
       )}
       {state.view === 'sbs' && !immersive && <SideBySide />}
       {state.view === 'interlaced' && !immersive && <Interlaced />}
-      {phoneStereo && <PhoneStereoXR strength={state.strength} />}
+      {phoneStereo && <PhoneStereoXR strength={state.strength} stretch={state.periphery === 'stretch'} />}
       {!inSession && <FloorGrid />}
-      <DepthSource mode={state.depthMode} video={testFeed} />
+      <DepthSource mode={state.depthMode} smoothing={state.smoothing} video={testFeed} />
       <Player origin={origin} menu={menuPanel}>
-        {cameraInRoom && <DepthPassthrough surface={state.depthMesh} />}
+        {cameraInRoom && <DepthPassthrough surface={state.depthMesh} outfill={state.periphery !== 'black'} />}
         {immersive &&
           (docked && inSession ? (
             // no groupRef: a docked panel can't be carried off by a grip

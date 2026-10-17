@@ -1,36 +1,76 @@
-// Depth Anything V2 Small in a worker, so inference never holds up a frame.
-// Ported from the 2D-3D video converter's depth host (youtube-3d-convert-addon
-// src/depth/host.ts). The model comes from Hugging Face on first use and is
+// The depth models in a worker, so inference never holds up a frame. Ported
+// from the 2D-3D video converter's depth host (youtube-3d-convert-addon
+// src/depth/host.ts). Models come from Hugging Face on first use and are
 // kept in the Cache API after that; onnxruntime's .wasm is served with the
 // app (Vite emits it).
 //
-// Messages in:  { type: 'init' } | { type: 'frame', id, rgba, width, height }
-// Messages out: { type: 'progress', loaded, total } | { type: 'ready', provider }
-//               | { type: 'error', message } | { type: 'frame-error', id, message }
+// Messages in:  { type: 'init', model } | { type: 'frame', id, rgba, width, height }
+// Messages out: { type: 'progress', model, loaded, total } | { type: 'ready', model, provider }
+//               | { type: 'error', model, message } | { type: 'frame-error', id, message }
 //               | { type: 'depth', id, data, width, height, min, max, ms }
 // `data` is relative inverse depth: larger is nearer, in no particular unit.
 import * as ort from 'onnxruntime-web/webgpu';
 
-const MODEL_BASE = 'https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/main/onnx';
 const CACHE = 'depth-xr-models';
+const DA2 = 'https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/main/onnx';
+const DA3 = 'https://huggingface.co/onnx-community/depth-anything-v3-small/resolve/main/onnx';
+const MIDAS = 'https://huggingface.co/InDepthDesigns/midas_v21_small_256/resolve/main';
 const MEAN = [0.485, 0.456, 0.406];
 const STD = [0.229, 0.224, 0.225];
+
+/**
+ * How each model is loaded, fed and read. `files(gpu)`: the attempts in
+ * order, each { url, ep, label, externalData? }. `multiView`: the input has
+ * a views dimension, [batch, views, 3, H, W]. `outputIsDistance`: far is
+ * large, not near.
+ */
+const MODELS = {
+  da2: {
+    name: 'Depth Anything V2',
+    files: (gpu) => [
+      ...(gpu?.f16 ? [{ url: `${DA2}/model_fp16.onnx`, ep: 'webgpu', label: 'WebGPU fp16' }] : []),
+      ...(gpu ? [{ url: `${DA2}/model.onnx`, ep: 'webgpu', label: 'WebGPU fp32' }] : []),
+      { url: `${DA2}/model_quantized.onnx`, ep: 'wasm', label: 'CPU int8 (slow)' },
+    ],
+  },
+  da3: {
+    name: 'Depth Anything V3',
+    files: (gpu) =>
+      [
+        ...(gpu ? [{ ep: 'webgpu', label: 'WebGPU fp32' }] : []),
+        { ep: 'wasm', label: 'CPU fp32 (slow)' },
+      ].map((a) => ({ ...a, url: `${DA3}/model.onnx`, externalData: `${DA3}/model.onnx_data` })),
+    multiView: true,
+    outputIsDistance: true,
+  },
+  midas: {
+    name: 'MiDaS v2.1',
+    files: (gpu) =>
+      [...(gpu ? [{ ep: 'webgpu', label: 'WebGPU fp32' }] : []), { ep: 'wasm', label: 'CPU fp32 (slow)' }].map((a) => ({
+        ...a,
+        url: `${MIDAS}/midas_v21_small_256.onnx`,
+      })),
+  },
+};
 
 ort.env.wasm.numThreads = 1; // the page isn't cross-origin isolated, so no SharedArrayBuffer
 ort.env.wasm.proxy = false;
 
 let session = null;
-let loading = null;
+let loadedModel = null;
+let provider = '';
+let running = null; // the inference in progress; a model switch waits for it before releasing
+let loadSeq = 0; // bumped per init, so a slow load that was superseded doesn't report
 
 const send = (msg, transfer = []) => self.postMessage(msg, transfer);
 
-/** The model file's bytes, from the cache or the network (reporting progress), then cached. */
-async function fetchModel(url) {
+/** A file's bytes, from the cache or the network (reporting progress), then cached. */
+async function fetchFile(url, model, report) {
   const cache = await caches.open(CACHE).catch(() => null);
   const hit = await cache?.match(url);
   if (hit) return new Uint8Array(await hit.arrayBuffer());
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`model download failed (HTTP ${res.status})`);
+  if (!res.ok) throw new Error(`download failed (HTTP ${res.status})`);
   const total = Number(res.headers.get('content-length')) || 0;
   const reader = res.body.getReader();
   const chunks = [];
@@ -41,9 +81,9 @@ async function fetchModel(url) {
     if (done) break;
     chunks.push(value);
     loaded += value.length;
-    if (loaded - lastReport > 1 << 20) {
+    if (report && loaded - lastReport > 1 << 20) {
       lastReport = loaded;
-      send({ type: 'progress', loaded, total });
+      send({ type: 'progress', model, loaded, total });
     }
   }
   const bytes = new Uint8Array(loaded);
@@ -56,32 +96,44 @@ async function fetchModel(url) {
   return bytes;
 }
 
-/**
- * WebGPU with the fp16 model where the GPU has shader-f16, else fp32; with
- * no WebGPU at all, the 8-bit model on the CPU (slow, but it runs).
- */
-async function load() {
-  const adapter = await self.navigator.gpu?.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null);
-  const attempts = adapter
-    ? [
-        ...(adapter.features.has('shader-f16') ? [{ file: 'model_fp16.onnx', ep: 'webgpu', label: 'WebGPU fp16' }] : []),
-        { file: 'model.onnx', ep: 'webgpu', label: 'WebGPU fp32' },
-      ]
-    : [];
-  attempts.push({ file: 'model_quantized.onnx', ep: 'wasm', label: 'CPU int8 (slow)' });
-  let lastError;
-  for (const { file, ep, label } of attempts) {
-    try {
-      const bytes = await fetchModel(`${MODEL_BASE}/${file}`);
-      session = await ort.InferenceSession.create(bytes, { executionProviders: [ep], graphOptimizationLevel: 'all' });
-      const vendor = adapter?.info?.vendor;
-      return `Depth Anything V2 · ${label}${ep === 'webgpu' && vendor ? ` · ${vendor}` : ''}`;
-    } catch (e) {
-      console.warn(`[depth-xr] ${label} failed:`, e);
-      lastError = e;
+async function init(model) {
+  if (session && loadedModel === model) return send({ type: 'ready', model, provider });
+  const seq = ++loadSeq;
+  const old = session;
+  session = null; // frames are refused from here on
+  loadedModel = null;
+  await running?.catch(() => {});
+  await old?.release().catch(() => {});
+  try {
+    const adapter = await self.navigator.gpu?.requestAdapter({ powerPreference: 'high-performance' }).catch(() => null);
+    const gpu = adapter && { f16: adapter.features.has('shader-f16') };
+    const spec = MODELS[model];
+    let lastError;
+    for (const { url, ep, label, externalData } of spec.files(gpu)) {
+      try {
+        // the big file reports progress: the weights where they're separate, else the model
+        const bytes = await fetchFile(url, model, !externalData);
+        const data = externalData ? await fetchFile(externalData, model, true) : null;
+        const s = await ort.InferenceSession.create(bytes, {
+          executionProviders: [ep],
+          graphOptimizationLevel: 'all',
+          ...(data ? { externalData: [{ path: 'model.onnx_data', data }] } : {}),
+        });
+        if (seq !== loadSeq) return void s.release(); // another model was asked for meanwhile
+        const vendor = adapter?.info?.vendor;
+        provider = `${spec.name} · ${label}${ep === 'webgpu' && vendor ? ` · ${vendor}` : ''}`;
+        session = s;
+        loadedModel = model;
+        return send({ type: 'ready', model, provider });
+      } catch (e) {
+        console.warn(`[depth-xr] ${spec.name} ${label} failed:`, e);
+        lastError = e;
+      }
     }
+    throw lastError;
+  } catch (e) {
+    if (seq === loadSeq) send({ type: 'error', model, message: e instanceof Error ? e.message : String(e) });
   }
-  throw lastError;
 }
 
 function toTensor(rgba, w, h) {
@@ -92,7 +144,7 @@ function toTensor(rgba, w, h) {
     out[n + i] = (rgba[i * 4 + 1] / 255 - MEAN[1]) / STD[1];
     out[2 * n + i] = (rgba[i * 4 + 2] / 255 - MEAN[2]) / STD[2];
   }
-  return new ort.Tensor('float32', out, [1, 3, h, w]);
+  return new ort.Tensor('float32', out, MODELS[loadedModel].multiView ? [1, 1, 3, h, w] : [1, 3, h, w]);
 }
 
 /**
@@ -109,16 +161,25 @@ function percentileRange(data) {
 }
 
 async function runFrame({ id, rgba, width, height }) {
-  if (!session) return send({ type: 'frame-error', id, message: 'model not loaded' });
+  const s = session;
+  if (!s || !loadedModel) return send({ type: 'frame-error', id, message: 'model not loaded' });
   try {
     const t0 = performance.now();
+    const spec = MODELS[loadedModel];
     const input = toTensor(rgba, width, height);
-    const result = await session.run({ [session.inputNames[0]]: input }, [session.outputNames[0]]);
-    const out = result[session.outputNames[0]];
+    // only the depth output (Depth Anything V3 also has confidence and camera outputs)
+    const run = s.run({ [s.inputNames[0]]: input }, [s.outputNames[0]]);
+    running = run;
+    const result = await run.finally(() => {
+      if (running === run) running = null;
+    });
+    const out = result[s.outputNames[0]];
     const data = new Float32Array(out.data); // a copy we own, to transfer
     const [h, w] = out.dims.slice(-2);
     input.dispose();
     out.dispose();
+    // everything downstream expects near = large (inverse distance, like disparity)
+    if (spec.outputIsDistance) for (let i = 0; i < data.length; i++) data[i] = 1 / Math.max(data[i], 1e-6);
     const [min, max] = percentileRange(data);
     send({ type: 'depth', id, data, width: w, height: h, min, max, ms: performance.now() - t0 }, [data.buffer]);
   } catch (e) {
@@ -128,9 +189,6 @@ async function runFrame({ id, rgba, width, height }) {
 
 self.onmessage = (e) => {
   const msg = e.data;
-  if (msg.type === 'init') {
-    loading ??= load()
-      .then((provider) => send({ type: 'ready', provider }))
-      .catch((err) => send({ type: 'error', message: err instanceof Error ? err.message : String(err) }));
-  } else if (msg.type === 'frame') runFrame(msg);
+  if (msg.type === 'init') init(msg.model);
+  else if (msg.type === 'frame') runFrame(msg);
 };

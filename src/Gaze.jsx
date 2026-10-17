@@ -3,10 +3,10 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
 // Hands-free activation: look at a control and hold your gaze for DWELL_SECONDS.
-// A reticle marks the centre of view and fills a ring while the timer runs.
+// While the gaze is on a panel, a reticle marks the centre of view and fills
+// a ring while the timer runs; elsewhere it hides, out of the way of the view.
 
 const DWELL_SECONDS = 1;
-const IDLE_DISTANCE = 2; // reticle depth when not over a control
 const RETICLE_SIZE = 0.035; // outer ring radius per metre of distance (~2°): constant on-screen size
 const RING_SEGMENTS = 48;
 
@@ -70,9 +70,11 @@ export function GazeReticle() {
     let hit = null;
     let hitTarget = null;
     let hitKey = null;
+    let panelDistance = Infinity; // the nearest panel under the gaze, control or not
     for (const target of targets) {
       if (!target.object.visible) continue;
       const [intersection] = raycaster.intersectObject(target.object, false);
+      if (intersection) panelDistance = Math.min(panelDistance, intersection.distance);
       if (!intersection || (hit && intersection.distance >= hit.distance)) continue;
       const key = target.pick(intersection);
       if (key == null) continue; // on the panel, but not on a control
@@ -97,8 +99,10 @@ export function GazeReticle() {
     const progress = state.target && !state.fired ? Math.min(state.elapsed / DWELL_SECONDS, 1) : 0;
     progressRing.current.geometry.setDrawRange(0, Math.round(progress * RING_SEGMENTS) * 6);
 
-    // sit just in front of the control, or float at a comfortable depth
-    const distance = hit ? Math.max(hit.distance - 0.01, 0.05) : IDLE_DISTANCE;
+    reticle.current.visible = panelDistance < Infinity;
+    if (!reticle.current.visible) return;
+    // sit just in front of the control, or of the panel between controls
+    const distance = Math.max((hit ? hit.distance : panelDistance) - 0.01, 0.05);
     reticle.current.position.copy(_origin).addScaledVector(_direction, distance);
     reticle.current.quaternion.copy(camera.getWorldQuaternion(reticle.current.quaternion));
     reticle.current.scale.setScalar(distance * RETICLE_SIZE);

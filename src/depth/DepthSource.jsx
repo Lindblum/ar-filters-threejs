@@ -5,23 +5,32 @@ import * as THREE from 'three';
 import { arcoreDepthMode, arcoreSigma, readArcoreDepth } from './arcore.js';
 import { CameraCapture } from './capture.js';
 import { bilateral, edgeStrength, gridColor, gridSize, sampleBilinear } from './grid.js';
-import { depthModel } from './ml.js';
-import { applyFit, assumedFit, blendFit, fitInverseDepth, fuseDepth } from './scale.js';
+import { groundPlane, sceneCues } from './heuristics.js';
+import { depthModel, modelInputSize } from './ml.js';
+import { ParallaxWorker } from './parallax.js';
+import { applyFit, assumedFit, blendFit, fitInverseDepth, fuseDepth, valueRange } from './scale.js';
+import { smoothFrame } from './smooth.js';
 import { getDepthStatus, liveCamera, setDepthFrame, setDepthStatus } from './store.js';
 
-// Makes depth frames (see grid.js) from whatever this session offers:
-//   ARCore depth (WebXR depth-sensing), metric but coarse and smooth;
-//   Depth Anything on the camera image (camera-access), sharp but relative,
-//   scaled to metres by ARCore's depth or, without it, by hit tests on
-//   surfaces;
-//   or, on the desktop, the test feed's video with the model alone.
-// Modes: 'auto' uses ARCore, plus the model while it keeps up; 'arcore' and
-// 'ml' use only that one; 'off' makes none.
+// Makes depth frames (see grid.js) with the chosen algorithm (Depth → Source):
+//   auto: ARCore's depth (WebXR depth-sensing), metric but coarse, sharpened
+//     by Depth Anything V2 while the model keeps up;
+//   arcore: ARCore's depth alone;
+//   da2, da3, midas: a depth model on the camera image (camera-access);
+//   cues: picture cues (heuristics.js);
+//   ground: the floor under every ray (heuristics.js);
+//   parallax: points tracked between frames and triangulated (parallax.js);
+//   off: none.
+// The models and scene cues give relative depth, scaled to metres against
+// ARCore's depth where the phone has it, else hit tests on surfaces, else an
+// assumed range. Ground plane and motion parallax are metric by themselves.
+// On the desktop the test feed's video stands in for the camera, with a
+// fixed pose (so no ARCore, no hit tests, and parallax falls back to flow).
 
 const INTERVAL = 0.1; // seconds between captures, at most
 const ML_TOO_SLOW_MS = 250; // auto mode drops the model above this (after warm-up)
 const ML_WARMUP = 3;
-const ARCORE_STRIDE = 3; // every third grid cell is enough to fit the model's scale
+const ARCORE_STRIDE = 3; // every third grid cell is enough to fit a relative estimate's scale
 const ANCHOR_RAYS = [
   [0, 0],
   [0.25, 0.2],
@@ -32,6 +41,9 @@ const ANCHOR_RAYS = [
 const ANCHOR_AGE = 10; // seconds a hit-test point is kept
 const ANCHOR_MAX = 300;
 const EDGE_GAIN = 3; // sigma grows by up to this many times at depth edges
+
+/** The depth model each mode runs, if any: auto sharpens ARCore with Depth Anything V2. */
+const MODEL_OF = { auto: 'da2', da2: 'da2', da3: 'da3', midas: 'midas' };
 
 /** The desktop test feed's camera: eye height, looking straight ahead. */
 export const TEST_CAMERA = { position: [0, 1.3, 0], fov: 60 };
@@ -47,7 +59,7 @@ function modelGrid(result, width, height) {
   return out;
 }
 
-/** Pairs of (model value, metric depth) from ARCore's grid. */
+/** Pairs of (relative value, metric depth) from ARCore's grid. */
 function pairsFromGrid(values, depth) {
   const m = [];
   const z = [];
@@ -84,15 +96,25 @@ function arcoreSigmas(depth, edges) {
   return sigma;
 }
 
+function arcoreOnly(depth, color, width, height) {
+  const refined = color ? bilateral(depth, color, width, height) : depth;
+  return { depth: refined, sigma: arcoreSigmas(refined, edgeStrength(refined, width, height)) };
+}
+
+const freshRun = () => ({ last: -Infinity, busy: false, fit: null, mlRuns: 0, mlMs: 0, mlSlow: false, smoothed: null });
+
 /**
- * `mode`: 'auto' | 'arcore' | 'ml' | 'off'. `video`: the desktop test
- * feed's <video>, or null.
+ * `mode`: see the top of this file. `smoothing`: 'off' | 'low' | 'medium' |
+ * 'high' (see smooth.js). `video`: the desktop test feed's <video>, or null.
  */
-export function DepthSource({ mode, video }) {
+export function DepthSource({ mode, smoothing = 'medium', video }) {
   const gl = useThree((s) => s.gl);
   const capture = useMemo(() => new CameraCapture(), []);
   useEffect(() => () => capture.dispose(), [capture]);
-  const run = useRef({ last: -Infinity, busy: false, fit: null, mlRuns: 0, mlMs: 0, mlSlow: false });
+  const parallax = useMemo(() => new ParallaxWorker(), []);
+  const run = useRef(freshRun());
+  const smoothingRef = useRef(smoothing);
+  smoothingRef.current = smoothing;
   const anchors = useRef({ sources: [], points: [], session: null, lastT: -Infinity });
   const videoTexture = useMemo(() => {
     if (!video) return null;
@@ -102,24 +124,19 @@ export function DepthSource({ mode, video }) {
   }, [video]);
   useEffect(() => () => videoTexture?.dispose(), [videoTexture]);
 
-  // the model loads on first need: always in ML mode, in auto once a session starts, and for the test feed
+  // a chosen model loads at once, ready for XR; auto's loads once there's a camera to run it on
   const session = useXR((s) => s.session);
+  const model = MODEL_OF[mode] ?? null;
   useEffect(() => {
-    if (mode === 'ml' || (mode === 'auto' && session) || (mode !== 'off' && video)) depthModel.load();
-  }, [mode, session, video]);
-  useEffect(
-    () =>
-      depthModel.subscribe(() => {
-        const s = getDepthStatus();
-        setDepthStatus({ ...s, ml: mlStatus(run.current) });
-      }),
-    [],
-  );
-  // a new session or mode starts over
+    if (model && (mode !== 'auto' || session || video)) depthModel.load(model);
+  }, [model, mode, session, video]);
+  useEffect(() => depthModel.subscribe(() => setDepthStatus({ ...getDepthStatus(), ml: mlStatus(run.current) })), []);
+  // a new mode, session or feed starts over
   useEffect(() => {
-    run.current = { last: -Infinity, busy: false, fit: null, mlRuns: 0, mlMs: 0, mlSlow: false };
+    run.current = freshRun();
+    parallax.reset();
     setDepthFrame(null);
-  }, [mode, video]);
+  }, [mode, session, video, parallax]);
 
   useFrame(({ clock }, _, frame) => {
     const t = clock.elapsedTime;
@@ -151,44 +168,59 @@ export function DepthSource({ mode, video }) {
     if (mode === 'off' || state.busy || t - state.last < INTERVAL) return;
 
     const arcoreMode = arcoreDepthMode(xrSession);
-    const useArcore = mode !== 'ml' && arcoreMode === 'cpu';
-    // auto drops a slow model only when ARCore can carry on without it
-    const modelWanted = mode === 'ml' || (mode === 'auto' && !(state.mlSlow && useArcore));
-    const useModel = modelWanted && depthModel.state === 'ready' && !depthModel.busy;
     const proj = view.projectionMatrix;
     const aspect = xrCamera ? xrCamera.width / xrCamera.height : proj[5] / proj[0];
     const { width, height } = gridSize(aspect);
-    const arcore = useArcore ? readArcoreDepth(frame, view, width, height) : null;
-    if (!arcore && !(useModel && liveCamera.texture)) {
-      reportIdle(arcoreMode);
+    // ARCore's depth: the depth itself in auto and arcore modes, the scale for relative estimates in the rest
+    const arcore = arcoreMode === 'cpu' ? readArcoreDepth(frame, view, width, height) : null;
+    const kind = estimator(Boolean(arcore), Boolean(liveCamera.texture));
+    const status = { arcore: arcoreMode, rawSize: arcore ? [arcore.rawWidth, arcore.rawHeight] : null };
+    if (!kind) {
+      setDepthStatus({ ...getDepthStatus(), ...status, source: null, ml: mlStatus(state) });
       return;
     }
     state.last = t;
     const base = {
       width,
       height,
+      posed: true,
       cameraToWorld: new THREE.Matrix4().fromArray(view.transform.matrix),
       projectionInverse: new THREE.Matrix4().fromArray(proj).invert(),
       worldToCamera: liveCamera.worldToCamera.clone(),
       projection: liveCamera.projection.clone(),
     };
-    const status = { arcore: arcoreMode, rawSize: arcore ? [arcore.rawWidth, arcore.rawHeight] : null };
-
     if (!liveCamera.texture) {
-      publish({ ...base, ...arcoreOnly(arcore.depth, null, width, height), color: null, source: 'arcore' }, status);
+      // no camera image: only what needs none
+      if (kind === 'arcore') publish({ ...base, ...arcoreOnly(arcore.depth, null, width, height), color: null, source: 'arcore' }, status);
+      else publish({ ...base, ...groundPlane(base), color: null, source: 'ground' }, status);
       return;
     }
     state.busy = true;
     capture
-      .captureTexture(gl, liveCamera.texture, aspect)
-      .then((image) => process(image, base, arcore?.depth ?? null, useModel, status))
+      .captureTexture(gl, liveCamera.texture, modelInputSize(kind === 'model' ? model : 'da2', aspect))
+      .then((image) => process(image, base, kind, arcore?.depth ?? null, status))
       .catch((e) => console.warn('[depth-xr] camera capture failed:', e))
       .finally(() => {
         state.busy = false;
       });
   }, -2);
 
-  /** The desktop test feed: the video's frames through the model, at an assumed scale. */
+  /**
+   * Which estimate to make this frame, given whether there's ARCore depth
+   * and a camera image: 'model' | 'arcore' | 'cues' | 'ground' | 'parallax',
+   * or null for none.
+   */
+  function estimator(hasArcore, hasCamera) {
+    const modelFree = model && depthModel.isReady(model) && !depthModel.busy && hasCamera;
+    if (mode === 'auto') return modelFree && !(run.current.mlSlow && hasArcore) ? 'model' : hasArcore ? 'arcore' : null;
+    if (mode === 'arcore') return hasArcore ? 'arcore' : null;
+    if (model) return modelFree ? 'model' : null;
+    if (mode === 'ground') return 'ground';
+    if (mode === 'cues' || mode === 'parallax') return hasCamera ? mode : null;
+    return null;
+  }
+
+  /** The desktop test feed: the video's frames, from a fixed camera. */
   function testFeedFrame(t) {
     const state = run.current;
     if (!video.videoWidth) return;
@@ -199,68 +231,92 @@ export function DepthSource({ mode, video }) {
     liveCamera.projection.copy(projection);
     liveCamera.texture = videoTexture;
     liveCamera.size.set(video.videoWidth, video.videoHeight);
-    if (mode === 'off' || state.busy || t - state.last < INTERVAL || depthModel.state !== 'ready' || depthModel.busy) return;
+    if (mode === 'off' || state.busy || t - state.last < INTERVAL) return;
+    const kind = estimator(false, true);
+    if (!kind) return;
     state.last = t;
     state.busy = true;
     const { width, height } = gridSize(aspect);
     const base = {
       width,
       height,
+      posed: false, // it never moves, so parallax can't triangulate
       cameraToWorld,
       projectionInverse: projection.clone().invert(),
       worldToCamera: cameraToWorld.clone().invert(),
       projection: projection.clone(),
     };
-    process(capture.captureVideo(video), base, null, true, { arcore: null, rawSize: null }, true).finally(() => {
+    const image = capture.captureVideo(video, modelInputSize(kind === 'model' ? model : 'da2', aspect));
+    process(image, base, kind, null, { arcore: null, rawSize: null, test: true }).finally(() => {
       state.busy = false;
     });
   }
 
-  /** Turns a captured image (and ARCore's grid, if any) into a depth frame. */
-  async function process(image, base, arcoreDepth, useModel, status, test = false) {
+  /** Turns a captured image (and ARCore's grid, if any) into a depth frame with the estimator `kind`. */
+  async function process(image, base, kind, arcoreDepth, status) {
     const { width, height } = base;
-    const color = gridColor(image.rgba, image.width, image.height, width, height);
-    const result = useModel ? await depthModel.run(image.rgba, image.width, image.height) : null;
-    if (!result) {
-      if (arcoreDepth) publish({ ...base, ...arcoreOnly(arcoreDepth, color, width, height), color, source: 'arcore' }, status);
-      return;
-    }
-    noteModelTime(result.ms);
-    const values = modelGrid(result, width, height);
     const state = run.current;
-    const pairs = arcoreDepth
-      ? pairsFromGrid(values, arcoreDepth)
-      : pairsFromAnchors(values, width, height, anchors.current.points, base.worldToCamera, base.projection);
-    const fit = fitInverseDepth(pairs.m, pairs.z) ?? assumedFit(result.min, result.max);
-    state.fit = blendFit(state.fit, fit);
-    let { depth, sigma } = applyFit(state.fit, values);
-    if (arcoreDepth) ({ depth, sigma } = fuseDepth(depth, sigma, arcoreDepth, arcoreSigmas(arcoreDepth, edgeStrength(arcoreDepth, width, height))));
-    const edges = edgeStrength(depth, width, height);
-    for (let i = 0; i < sigma.length; i++) sigma[i] *= 1 + EDGE_GAIN * edges[i];
-    const source = test ? 'test' : arcoreDepth ? 'arcore+ml' : 'ml';
-    publish({ ...base, depth, sigma, color, source }, status);
+    const color = gridColor(image.rgba, image.width, image.height, width, height);
+    const t0 = performance.now();
+    let estimate; // { values, range } (relative) or { depth, sigma } (metric)
+    let ms = null;
+    let extra = {};
+    if (kind === 'model') {
+      const result = await depthModel.run(image.rgba, image.width, image.height);
+      if (!result) {
+        if (mode === 'auto' && arcoreDepth) publish({ ...base, ...arcoreOnly(arcoreDepth, color, width, height), color, source: 'arcore' }, status);
+        return;
+      }
+      noteModelTime(result.ms);
+      ms = result.ms;
+      estimate = { values: modelGrid(result, width, height), range: [result.min, result.max] };
+    } else if (kind === 'cues') {
+      const values = sceneCues(color, width, height);
+      estimate = { values, range: valueRange(values) };
+    } else if (kind === 'parallax') {
+      const t1 = performance.now();
+      const r = await parallax.estimate(image, base);
+      if (!r) return; // reset meanwhile
+      ms = performance.now() - t1;
+      estimate = r.values ? { values: r.values, range: valueRange(r.values) } : r;
+      if (!r.values) extra = { parallax: { baseline: Math.round(r.baseline * 100), tracked: Math.round(r.tracked * 100) } };
+    } else if (kind === 'ground') estimate = groundPlane(base);
+    else estimate = arcoreOnly(arcoreDepth, color, width, height);
+    ms ??= performance.now() - t0;
+
+    let { depth, sigma } = estimate;
+    let fitted = false;
+    if (estimate.values) {
+      // relative: scale it to metres
+      const pairs = arcoreDepth
+        ? pairsFromGrid(estimate.values, arcoreDepth)
+        : pairsFromAnchors(estimate.values, width, height, anchors.current.points, base.worldToCamera, base.projection);
+      const fit = fitInverseDepth(pairs.m, pairs.z) ?? assumedFit(...estimate.range);
+      state.fit = blendFit(state.fit, fit);
+      ({ depth, sigma } = applyFit(state.fit, estimate.values));
+      fitted = true;
+      if (mode === 'auto' && arcoreDepth)
+        ({ depth, sigma } = fuseDepth(depth, sigma, arcoreDepth, arcoreSigmas(arcoreDepth, edgeStrength(arcoreDepth, width, height))));
+      const edges = edgeStrength(depth, width, height);
+      for (let i = 0; i < sigma.length; i++) sigma[i] *= 1 + EDGE_GAIN * edges[i];
+    }
+    const source = mode === 'auto' ? (kind === 'model' ? (arcoreDepth ? 'arcore+da2' : 'da2') : 'arcore') : mode;
+    publish({ ...base, depth, sigma, color, source }, { ...status, ...extra, ms: Math.round(ms), fitted });
   }
 
-  function arcoreOnly(depth, color, width, height) {
-    const refined = color ? bilateral(depth, color, width, height) : depth;
-    return { depth: refined, sigma: arcoreSigmas(refined, edgeStrength(refined, width, height)) };
-  }
-
-  function publish(depthFrame, status) {
-    depthFrame.time = performance.now();
+  function publish(raw, status) {
+    raw.time = performance.now();
+    const depthFrame = smoothFrame(run.current.smoothed, raw, smoothingRef.current);
+    run.current.smoothed = depthFrame;
     setDepthFrame(depthFrame);
     const fit = run.current.fit;
     setDepthStatus({
       source: depthFrame.source,
       ...status,
       ml: mlStatus(run.current),
-      fit: depthFrame.source === 'arcore' || !fit ? null : { error: fit.error, assumed: Boolean(fit.assumed), n: fit.n },
+      fit: status.fitted && fit ? { error: fit.error, assumed: Boolean(fit.assumed), n: fit.n } : null,
       anchors: anchors.current.points.length,
     });
-  }
-
-  function reportIdle(arcoreMode) {
-    setDepthStatus({ ...getDepthStatus(), source: null, arcore: arcoreMode, ml: mlStatus(run.current) });
   }
 
   /** Auto mode's judgement of the model: its average time after warm-up. */
@@ -273,7 +329,7 @@ export function DepthSource({ mode, video }) {
     if (n >= 5 && state.mlMs > ML_TOO_SLOW_MS) state.mlSlow = true;
   }
 
-  /** Hit-test points on real surfaces near the view's centre, for scaling the model without ARCore depth. */
+  /** Hit-test points on real surfaces near the view's centre, for scaling relative depth without ARCore's. */
   function collectAnchors(frame, xrSession, referenceSpace, t) {
     const a = anchors.current;
     if (a.session !== xrSession) {
@@ -295,7 +351,7 @@ export function DepthSource({ mode, video }) {
             if (a.session === xrSession) a.sources = sources;
             else sources.forEach((s) => s.cancel());
           })
-          .catch((e) => console.warn('[depth-xr] no hit testing; the model will use an assumed scale without ARCore depth:', e));
+          .catch((e) => console.warn('[depth-xr] no hit testing; relative depth will use an assumed scale without ARCore depth:', e));
     }
     if (!a.sources.length || t - a.lastT < INTERVAL) return;
     a.lastT = t;
@@ -311,6 +367,7 @@ export function DepthSource({ mode, video }) {
 
 function mlStatus(state) {
   return {
+    model: depthModel.model,
     state: depthModel.state,
     provider: depthModel.provider,
     progress: Math.round(depthModel.progress * 100),
