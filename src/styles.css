@@ -1,0 +1,177 @@
+:root {
+  color-scheme: dark;
+  --panel: rgba(10, 14, 28, 0.72);
+  --border: rgba(255, 255, 255, 0.14);
+  --text: #e8ecf6;
+  --muted: #9aa3b8;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: var(--text);
+}
+
+canvas { display: block; touch-action: none; }
+
+.hud {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  width: max-content; /* as wide as the widest possible button (see .menu-sizer) */
+  max-width: calc(100vw - 24px);
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-size: 14px;
+  user-select: none;
+}
+
+.hud header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.hud h1 { flex: 1; margin: 0; font-size: 16px; font-weight: 650; letter-spacing: 0.02em; }
+.hud .collapse { display: grid; place-items: center; width: 30px; height: 28px; padding: 0; }
+.hud-gear {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 12px;
+  background: var(--panel);
+  border-color: var(--border);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-size: 18px;
+}
+.hud-gear:hover { background: rgba(40, 46, 66, 0.85); }
+
+.stats + .stats { margin-top: -6px; }
+.stats { margin: 0 0 10px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+button:hover { background: rgba(255, 255, 255, 0.16); }
+
+/* options: equal-width grey buttons, one per setting, "icon  Name: Value" */
+.menu-items { display: flex; flex-direction: column; gap: 10px; }
+.menu-sizer {
+  height: 0;
+  margin-top: -10px; /* cancel the list's gap above it */
+  overflow: hidden;
+  visibility: hidden;
+}
+.menu-sizer .menu-btn { border: 1px solid transparent; }
+.menu-btn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 34px;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.14);
+  text-align: left;
+  font-size: 14.5px;
+}
+.menu-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.4); }
+.menu-btn:disabled { opacity: 0.45; cursor: default; }
+.menu-btn .label { display: flex; flex: 1; gap: 18px; justify-content: space-between; min-width: 0; white-space: nowrap; line-height: 1.25; }
+.menu-btn .name { flex: none; }
+.menu-btn .value { min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+.icon { display: inline-flex; flex: none; align-items: center; line-height: 0; }
+.icon svg { display: block; }
+
+.note { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+
+.note.error { color: #ff9b8a; }
+
+
+/* Cardboard stereo view */
+.cardboard { position: fixed; inset: 0; cursor: pointer; }
+.cardboard-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+}
+.cardboard-exit {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(10, 14, 28, 0.6);
+  font-size: 18px;
+}
+
+/* notes wrap to the buttons' width rather than widening the panel */
+.hud .note { width: 0; min-width: 100%; }
+
+/* a dropdown's choices, two to a row beneath its button */
+.menu-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: -4px 0 0 24px;
+}
+.menu-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  text-align: left;
+  font-size: 13.5px;
+}
+.menu-option:hover { background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.4); }
+.menu-option.selected { background: rgba(255, 255, 255, 0.16); border-color: rgba(255, 255, 255, 0.45); }
+.menu-option .option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* the panel never runs off the screen: its header stays, the buttons scroll */
+.hud {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 2 * max(12px, env(safe-area-inset-top)));
+}
+.hud header { flex: none; }
+.hud-body {
+  min-height: 0;
+  margin-right: -10px; /* the scrollbar sits in the panel's padding, not over the buttons */
+  padding-right: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
