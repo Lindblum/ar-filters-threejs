@@ -20,6 +20,10 @@ html, body, #root {
 
 canvas { display: block; touch-action: none; }
 
+/* the phone AR session's DOM overlay: full screen and see-through, only the panel takes taps */
+.overlay-root:xr-overlay { background: transparent; pointer-events: none; }
+.overlay-root:xr-overlay .hud { pointer-events: auto; }
+
 .hud {
   position: fixed;
   top: max(12px, env(safe-area-inset-top));

@@ -41,7 +41,9 @@ import {
 //   the app draws as one view, or two lens-corrected eyes for a phone viewer;
 //   switching between the two is live. The session asks for the camera
 //   image and ARCore's depth, which the depth passthrough turns into a
-//   surface each eye sees from its own side. Phones without AR get a view
+//   surface each eye sees from its own side, and a DOM overlay: Phone AR
+//   shows the windowed panel over the view, Phone Viewer the panel in the
+//   scene (a flat panel can't sit in front of both eyes). Phones without AR get a view
 //   steered by the motion sensors instead, with the rear camera, flat, for
 //   passthrough.
 
@@ -349,6 +351,18 @@ export default function App() {
   const session = useSyncExternalStore(store.subscribe, getSession);
   const sessionMode = useSyncExternalStore(store.subscribe, getSessionMode);
   const sessionActive = session != null;
+  // the element the phone AR session shows over its view (see enterXR)
+  const overlayRoot = useRef(null);
+  // taps on the panel are for the panel, not also a select in the session
+  useEffect(() => {
+    const root = overlayRoot.current;
+    if (!root) return;
+    const onBeforeSelect = (e) => {
+      if (e.target.closest?.('.hud')) e.preventDefault();
+    };
+    root.addEventListener('beforexrselect', onBeforeSelect);
+    return () => root.removeEventListener('beforexrselect', onBeforeSelect);
+  }, []);
   const xrSupported = Boolean(support.vr || support.ar);
   const phone = useMemo(isPhone, []);
   const headset = useMemo(isHeadsetBrowser, []);
@@ -360,6 +374,8 @@ export default function App() {
   const inXR = sessionActive || handheld;
   // derived from the session, so the panel can never disagree with what is showing
   const view = inXR ? (phone ? (phoneStereo ? 'phoneViewer' : 'phoneAR') : 'xr') : screenView;
+  // Phone AR with the DOM overlay granted: the windowed panel, over the view, in place of the scene's
+  const domMenu = view === 'phoneAR' && Boolean(session?.domOverlayState);
   const [error, setError] = useState(null);
   // the desktop's stand-in for a phone camera, outside XR
   const testFeedAvailable = !phone && !headset;
@@ -370,7 +386,14 @@ export default function App() {
     setError(null);
     let label = 'AR';
     try {
-      if (phone && support.ar) await enterWith(PHONE_AR_SESSION_INIT, () => store.enterAR());
+      if (phone && support.ar) {
+        const init = {
+          ...PHONE_AR_SESSION_INIT,
+          optionalFeatures: [...PHONE_AR_SESSION_INIT.optionalFeatures, 'dom-overlay'],
+          domOverlay: { root: overlayRoot.current },
+        };
+        await enterWith(init, () => store.enterAR());
+      }
       else if (phone) {
         enterCardboard({ landscape: stereo }).then((sensors) => {
           if (!sensors) console.warn('[depth-xr] motion sensor access denied; the view will not follow the phone');
@@ -485,14 +508,20 @@ export default function App() {
       <Canvas flat dpr={[1, 2]} events={sideBySideEvents} camera={{ position: [1.6, 2.2, 1.8], fov: 50, near: 0.05, far: 200 }}>
         <XR store={store}>
           <Scene
-            state={{ ...state, view, stereo: phoneStereo, handheld, passthrough: state.background === 'passthrough' }}
+            state={{ ...state, view, stereo: phoneStereo, handheld, domMenu, passthrough: state.background === 'passthrough' }}
             menu={menu}
             phone={phone}
             testFeed={testFeed.video}
           />
         </XR>
       </Canvas>
-      {handheld ? <CardboardOverlay split={phoneStereo} onHold={() => {}} onExit={exitXR} /> : <Hud menu={menu} notes={notes} />}
+      <div ref={overlayRoot} className="overlay-root">
+        {handheld ? (
+          <CardboardOverlay split={phoneStereo} onHold={() => {}} onExit={exitXR} />
+        ) : (
+          (!sessionActive || domMenu) && <Hud menu={menu} notes={notes} />
+        )}
+      </div>
     </>
   );
 }

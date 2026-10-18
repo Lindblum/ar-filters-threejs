@@ -409,6 +409,8 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     <group ref={groupRef} {...groupProps}>
       <mesh
         ref={mesh}
+        // drawn over the scene, never inside it (the reticle draws above, at 1000)
+        renderOrder={900}
         position={[((width - panelW) / 2) * PX_M, ((openHeight - height) / 2) * PX_M, 0]}
         onPointerOver={() => (pointing.current = true)}
         onPointerMove={(e) => setPointerKey(pick(e))}
@@ -424,7 +426,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
         }}
       >
         <planeGeometry args={[width * PX_M, height * PX_M]} />
-        <meshBasicMaterial map={texture} transparent depthWrite={false} toneMapped={false} />
+        <meshBasicMaterial map={texture} transparent depthTest={false} depthWrite={false} toneMapped={false} />
       </mesh>
     </group>
   );

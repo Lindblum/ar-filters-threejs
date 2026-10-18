@@ -216,6 +216,7 @@ export default function Scene({ state, menu, phone, testFeed }) {
       <Player origin={origin} menu={menuPanel}>
         {cameraInRoom && <DepthPassthrough surface={state.depthMesh} outfill={state.periphery !== 'black'} />}
         {immersive &&
+          !state.domMenu &&
           (docked && inSession ? (
             // no groupRef: a docked panel can't be carried off by a grip
             <LeftControllerDock>
@@ -231,7 +232,7 @@ export default function Scene({ state, menu, phone, testFeed }) {
             />
           ))}
       </Player>
-      {immersive && !hasControllers && <GazeReticle />}
+      {immersive && !hasControllers && !state.domMenu && <GazeReticle />}
       {state.handheld ? (
         <CardboardRig split={state.stereo} />
       ) : (
