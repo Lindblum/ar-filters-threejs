@@ -10,12 +10,13 @@ const MAX_DEPTH = 10;
 const GROUND_SIGMA = (z) => 0.05 + 0.08 * z;
 
 /**
- * Scene cues: lower in the picture, brighter, more saturated and nearer the
- * middle all read as nearer, since subjects tend to be all four. Relative
+ * The 2D-3D converter's heuristic (WiFi Camera Link's Scene cues): lower in
+ * the picture, brighter, more saturated and nearer the middle all read as
+ * nearer, since subjects tend to be all four. Relative
  * (larger is nearer, 0..1), from the grid's colours (blurred over 5 x 5
  * cells first); the scale is fitted like a model's.
  */
-export function sceneCues(color, width, height) {
+export function heuristicDepth(color, width, height) {
   const values = new Float32Array(width * height);
   for (let j = 0; j < height; j++) {
     const vertical = j / (height - 1);

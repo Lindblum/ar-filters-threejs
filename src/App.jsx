@@ -307,7 +307,7 @@ function depthLines(depth, active, mode) {
   if (!depth.source) {
     if ((mode === 'arcore' || mode === 'auto') && depth.arcore !== 'cpu')
       lines.push(depth.arcore === 'gpu' ? 'Depth: ARCore depth is GPU-only here' : 'Depth: this phone gives no ARCore depth');
-    else lines.push(mode === 'off' ? 'Depth: off' : 'Depth: none yet');
+    else lines.push('Depth: none yet');
     return lines;
   }
   const parts = [`${sourceName(depth.source)}${depth.test ? ' (test feed)' : ''}`];

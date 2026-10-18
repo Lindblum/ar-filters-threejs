@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { arcoreDepthMode, arcoreSigma, readArcoreDepth } from './arcore.js';
 import { CameraCapture } from './capture.js';
 import { bilateral, edgeStrength, gridColor, gridSize, sampleBilinear } from './grid.js';
-import { groundPlane, sceneCues } from './heuristics.js';
+import { groundPlane, heuristicDepth } from './heuristics.js';
 import { depthModel, modelInputSize } from './ml.js';
 import { ParallaxWorker } from './parallax.js';
 import { applyFit, assumedFit, blendFit, fitInverseDepth, fuseDepth, valueRange } from './scale.js';
@@ -17,11 +17,10 @@ import { getDepthStatus, liveCamera, setDepthFrame, setDepthStatus } from './sto
 //     by Depth Anything V2 while the model keeps up;
 //   arcore: ARCore's depth alone;
 //   da2, da3, midas: a depth model on the camera image (camera-access);
-//   cues: picture cues (heuristics.js);
+//   heuristic: the 2D-3D converter's picture cues (heuristics.js);
 //   ground: the floor under every ray (heuristics.js);
 //   parallax: points tracked between frames and triangulated (parallax.js);
-//   off: none.
-// The models and scene cues give relative depth, scaled to metres against
+// The models and the heuristic give relative depth, scaled to metres against
 // ARCore's depth where the phone has it, else hit tests on surfaces, else an
 // assumed range. Ground plane and motion parallax are metric by themselves.
 // On the desktop the test feed's video stands in for the camera, with a
@@ -165,7 +164,7 @@ export function DepthSource({ mode, smoothing = 0.5, video }) {
     liveCamera.projection.fromArray(view.projectionMatrix);
 
     collectAnchors(frame, xrSession, referenceSpace, t);
-    if (mode === 'off' || state.busy || t - state.last < INTERVAL) return;
+    if (state.busy || t - state.last < INTERVAL) return;
 
     const arcoreMode = arcoreDepthMode(xrSession);
     const proj = view.projectionMatrix;
@@ -207,7 +206,7 @@ export function DepthSource({ mode, smoothing = 0.5, video }) {
 
   /**
    * Which estimate to make this frame, given whether there's ARCore depth
-   * and a camera image: 'model' | 'arcore' | 'cues' | 'ground' | 'parallax',
+   * and a camera image: 'model' | 'arcore' | 'heuristic' | 'ground' | 'parallax',
    * or null for none.
    */
   function estimator(hasArcore, hasCamera) {
@@ -216,7 +215,7 @@ export function DepthSource({ mode, smoothing = 0.5, video }) {
     if (mode === 'arcore') return hasArcore ? 'arcore' : null;
     if (model) return modelFree ? 'model' : null;
     if (mode === 'ground') return 'ground';
-    if (mode === 'cues' || mode === 'parallax') return hasCamera ? mode : null;
+    if (mode === 'heuristic' || mode === 'parallax') return hasCamera ? mode : null;
     return null;
   }
 
@@ -231,7 +230,7 @@ export function DepthSource({ mode, smoothing = 0.5, video }) {
     liveCamera.projection.copy(projection);
     liveCamera.texture = videoTexture;
     liveCamera.size.set(video.videoWidth, video.videoHeight);
-    if (mode === 'off' || state.busy || t - state.last < INTERVAL) return;
+    if (state.busy || t - state.last < INTERVAL) return;
     const kind = estimator(false, true);
     if (!kind) return;
     state.last = t;
@@ -270,8 +269,8 @@ export function DepthSource({ mode, smoothing = 0.5, video }) {
       noteModelTime(result.ms);
       ms = result.ms;
       estimate = { values: modelGrid(result, width, height), range: [result.min, result.max] };
-    } else if (kind === 'cues') {
-      const values = sceneCues(color, width, height);
+    } else if (kind === 'heuristic') {
+      const values = heuristicDepth(color, width, height);
       estimate = { values, range: valueRange(values) };
     } else if (kind === 'parallax') {
       const t1 = performance.now();

@@ -127,17 +127,16 @@ function dropdown(state, id, choices, current, icons, unavailable) {
 }
 
 /** Depth → Algorithm: how depth is made (see depth/DepthSource.jsx). */
-export const DEPTH_MODES = ['auto', 'arcore', 'da2', 'da3', 'midas', 'cues', 'ground', 'parallax', 'off'];
+export const DEPTH_MODES = ['auto', 'arcore', 'da2', 'da3', 'midas', 'heuristic', 'ground', 'parallax'];
 export const DEPTH_MODE_LABELS = {
   auto: 'Auto',
   arcore: 'ARCore',
   da2: 'Depth Anything V2',
   da3: 'Depth Anything V3',
   midas: 'MiDaS',
-  cues: 'Scene Cues',
+  heuristic: 'Heuristic',
   ground: 'Ground Plane',
   parallax: 'Motion Parallax',
-  off: 'Off',
 };
 
 /** A slider's value from a fraction 0..1 along its track, snapped to its step. */
@@ -218,7 +217,7 @@ function depthItems(state) {
       label: `Algorithm: ${DEPTH_MODE_LABELS[state.depthMode]}`,
       icon: 'algorithm',
       title:
-        'Auto: ARCore depth, sharpened by Depth Anything V2 while it keeps up. The models download once (V2 50 MB, V3 105 MB, MiDaS 66 MB). Scene Cues and Ground Plane are instant guesses; Motion Parallax triangulates as you move the phone',
+        'Auto: ARCore depth, sharpened by Depth Anything V2 while it keeps up. The models download once (V2 50 MB, V3 105 MB, MiDaS 66 MB). Heuristic and Ground Plane are instant guesses; Motion Parallax triangulates as you move the phone',
       dropdown: dropdown(state, 'depthMode', DEPTH_MODES.map((m) => DEPTH_MODE_LABELS[m]), DEPTH_MODES.indexOf(state.depthMode)),
     },
     {
