@@ -14,7 +14,7 @@ A web page can't reconstruct depth from a Quest 2's cameras, but an Android phon
 
 On top of that, **Depth Anything V2 Small** runs on the camera image in a worker (onnxruntime-web, WebGPU), as in the 2D-3D video converter extension (youtube-3d-convert-addon). Its depth is sharp but relative, so it is scaled to metres against ARCore's depth or, without that, against hit tests on real surfaces. Every depth sample carries an uncertainty (sigma).
 
-The depth becomes a surface in the room, coloured with the live camera image, so each eye of the viewer sees it from its own side. Everything is true to scale: the camera sees less than a viewer's lenses show, so beyond the camera's view a blurred outfill carries the image's edges out into the periphery, all the way round (or black, or the image stretched: Video → Periphery).
+Each eye then sees the live camera image at its depth, drawn per pixel the way the 2D-3D converter does it: each eye's view rays are traced through the depth map, so there is no mesh to tear or step, and each eye sees the scene from its own side. Everything is true to scale: the camera sees less than a viewer's lenses show, so beyond the camera's view a blurred outfill carries the image's edges out into the periphery, all the way round (or black, or the image stretched: Video → Periphery).
 
 ## Use
 
