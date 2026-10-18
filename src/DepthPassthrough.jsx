@@ -20,6 +20,9 @@ import { FILTER_GLSL, filterUniforms } from './filters.js';
 //   an edge, leaving cells at depths in between, floating in mid air. A cell
 //   with almost no neighbours near its own depth, beside a jump, is moved to
 //   the nearer side.
+// - Notches (smoothNotches): along an edge, a cell sticking out on its own
+//   (a tooth) or missing from a straight run (a notch) is evened out to the
+//   side around it, so the staircase an edge makes on the grid runs straighter.
 // - Each grid square is split along the diagonal whose corners agree more,
 //   so triangles follow the edge instead of zigzagging across it.
 // - Outpainting (outpaint): the grid is extended by MARGIN of its size beyond
@@ -312,6 +315,63 @@ function snapPass(depth, width, height) {
   return out;
 }
 
+/**
+ * Depth with edges evened out: a cell sticking out one cell from a wide
+ * region (a tooth), or missing from one (a notch), takes the depth of the
+ * side around it. That's a cell with 3 of its 4 neighbours across a jump
+ * from it, all on the same side (all nearer or all farther), whose one
+ * neighbour on its own side belongs to something wide (that neighbour's own
+ * neighbours either side are on its side too); or an isolated cell, all 4
+ * across. The end of a line one cell wide, such as a thin pole, is attached
+ * to something narrow, so it stays. Twice, for steps two cells deep.
+ */
+const STEPS = [
+  [-1, 0],
+  [1, 0],
+  [0, -1],
+  [0, 1],
+];
+function smoothNotches(depth, width, height) {
+  let src = depth;
+  const at = (i, j) => (i >= 0 && i < width && j >= 0 && j < height ? src[j * width + i] : 0);
+  const across = new Float32Array(4);
+  for (let pass = 0; pass < 2; pass++) {
+    const out = src.slice();
+    for (let j = 0; j < height; j++) {
+      for (let i = 0; i < width; i++) {
+        const d = src[j * width + i];
+        if (!(d > 0)) continue;
+        let n = 0; // neighbours across a jump
+        let nearer = 0;
+        let own = -1; // the step to its one neighbour on its own side
+        let owns = 0;
+        for (let s = 0; s < 4; s++) {
+          const v = at(i + STEPS[s][0], j + STEPS[s][1]);
+          if (!(v > 0)) continue;
+          if (joined(v, d)) {
+            own = s;
+            owns++;
+          } else {
+            across[n++] = v;
+            if (v < d) nearer++;
+          }
+        }
+        if (n < 3 || owns > 1 || (nearer !== 0 && nearer !== n)) continue;
+        if (owns) {
+          // the neighbour on its own side must be part of something wide
+          const [dx, dy] = STEPS[own];
+          const side1 = at(i + dx + dy, j + dy + dx);
+          const side2 = at(i + dx - dy, j + dy - dx);
+          if (!(side1 > 0 && side2 > 0 && joined(side1, d) && joined(side2, d))) continue;
+        }
+        out[j * width + i] = across.subarray(0, n).sort()[n >> 1];
+      }
+    }
+    src = out;
+  }
+  return src;
+}
+
 /** Each cell's background: the farthest known depth around it. */
 function backgroundDepth(depth, width, height) {
   const out = new Float32Array(depth.length);
@@ -393,7 +453,8 @@ export function DepthPassthrough({ surface = true, outfill: outfillOn = true }) 
       geometry.deleteAttribute('position');
       return;
     }
-    const grown = outpaint(snapEdges(frame.depth, frame.width, frame.height), frame.width, frame.height);
+    const { width: w, height: h } = frame;
+    const grown = outpaint(smoothNotches(snapEdges(frame.depth, w, h), w, h), w, h);
     const { depth, width, height, margin } = grown;
     const positions = new Float32Array(width * height * 6);
     const at = { ...frame, width, height, margin };

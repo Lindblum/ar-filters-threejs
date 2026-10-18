@@ -1,7 +1,7 @@
 // Video → Filter: effects on the camera image, run per pixel in the shaders
 // that draw it (the depth passthrough, its outfill, and the motion-sensor
-// camera background). The depth filters need metric depth at the pixel, so
-// only the depth passthrough can show them; elsewhere they leave the image
+// camera background). Depth Colours needs metric depth at the pixel, so
+// only the depth passthrough can show it; elsewhere it leaves the image
 // as it is.
 
 export const FILTERS = [
@@ -15,8 +15,6 @@ export const FILTERS = [
   'night',
   'thermal',
   'depthColor',
-  'depthFog',
-  'depthOutline',
 ];
 export const FILTER_LABELS = {
   none: 'None',
@@ -29,10 +27,8 @@ export const FILTER_LABELS = {
   night: 'Night Vision',
   thermal: 'Thermal',
   depthColor: 'Depth Colours',
-  depthFog: 'Depth Fog',
-  depthOutline: 'Depth Outlines',
 };
-export const DEPTH_FILTERS = ['depthColor', 'depthFog', 'depthOutline'];
+export const DEPTH_FILTERS = ['depthColor'];
 
 /**
  * Shared by every material that includes FILTER_GLSL, so one assignment
@@ -122,8 +118,6 @@ ${FILTER_DEFINES}
     if (filterId == F_THERMAL) return ironbow(smoothstep(0.05, 0.95, luma(c)));
     if (depth < 0.0) return c; // the rest need depth
     if (filterId == F_DEPTH_COLOR) return turbo(1.0 - clamp(log(depth / 0.3) / log(20.0), 0.0, 1.0)); // 0.3 m red .. 6 m blue
-    if (filterId == F_DEPTH_FOG) return mix(c, vec3(0.78, 0.82, 0.88), 1.0 - exp(-depth * 0.45));
-    if (filterId == F_DEPTH_OUTLINE) return mix(c, vec3(0.0), smoothstep(0.03, 0.12, depthEdge));
     return c;
   }
 

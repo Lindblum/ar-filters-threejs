@@ -19,7 +19,7 @@ The depth becomes a surface in the room, coloured with the live camera image, so
 ## Use
 
 - **Video → View Mode → XR: Phone Viewer** for stereo in a viewer, or **XR: Phone AR** for one view.
-- **Video → Filter**: Grayscale, Sepia, Invert, Posterize, Edges, Cartoon, Night Vision, Thermal, and three that need depth: Depth Colours, Depth Fog, Depth Outlines. `F` cycles them on a desktop.
+- **Video → Filter**: Grayscale, Sepia, Invert, Posterize, Edges, Cartoon, Night Vision, Thermal, and Depth Colours, which needs depth. `F` cycles them on a desktop.
 - **Video → Periphery**: what the viewer shows beyond the camera's narrower view: Black, Outfill (the image's edges carried out, blurred), or Stretch (the image magnified to fill; turning then moves it a little fast).
 - **Depth → Algorithm**, how depth is made:
   - **Auto**: ARCore's depth, sharpened by Depth Anything V2 while it keeps up.

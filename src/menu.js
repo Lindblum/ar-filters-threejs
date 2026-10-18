@@ -251,7 +251,7 @@ function videoItems(state, env) {
       id: 'filter',
       label: `Filter: ${FILTER_LABELS[state.filter]}`,
       icon: 'filter',
-      title: 'Depth filters need depth: the depth passthrough, in XR or on the test feed',
+      title: 'Depth Colours needs depth: the depth passthrough, in XR or on the test feed',
       dropdown: dropdown(state, 'filter', FILTERS.map((f) => FILTER_LABELS[f]), FILTERS.indexOf(state.filter)),
     },
     {
