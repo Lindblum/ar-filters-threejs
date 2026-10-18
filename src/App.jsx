@@ -11,6 +11,7 @@ import { MODELS } from './depth/ml.js';
 import { useDepthStatus } from './depth/store.js';
 import { FILTERS, setFilter } from './filters.js';
 import { useTestFeed } from './testFeed.js';
+import { loadSettings, saveSettings } from './settings.js';
 import {
   DEPTH_MODE_LABELS,
   DROPDOWNS,
@@ -90,16 +91,18 @@ function isPhone() {
 const describe = (e) => `${e?.name ?? 'Error'}${e?.message ? ` - ${e.message}` : ''}`;
 
 function useAppState() {
-  const [depthMode, setDepthMode] = useState('auto'); // see depth/DepthSource.jsx
-  const [depthMesh, setDepthMesh] = useState(true); // the camera drawn at its depth, not flat
-  const [smoothing, setSmoothing] = useState(0.5); // how much of the past goes into each depth frame, see depth/smooth.js
-  const [convergence, setConvergence] = useState(0); // where the phone viewer's eyes meet, dioptres (0: ∞)
-  const [strength, setStrength] = useState(1); // the phone viewer's eye separation, times true scale
-  const [periphery, setPeriphery] = useState('outfill'); // the phone viewer beyond the camera: 'black' | 'outfill' | 'stretch'
-  const [filter, setFilterName] = useState('none');
-  const [background, setBackground] = useState('passthrough'); // 'solid' | 'skybox' | 'passthrough' | 'testFeed'
-  const [menuOpen, setMenuOpen] = useState(true); // shared by the windowed and XR panels
-  const [sections, setSections] = useState(['depth', 'video']); // the open sections, see menu.js
+  // the last session's settings (see settings.js), in place of the defaults below
+  const [saved] = useState(loadSettings);
+  const [depthMode, setDepthMode] = useState(saved.depthMode ?? 'auto'); // see depth/DepthSource.jsx
+  const [depthMesh, setDepthMesh] = useState(saved.depthMesh ?? true); // the camera drawn at its depth, not flat
+  const [smoothing, setSmoothing] = useState(saved.smoothing ?? 0.5); // how much of the past goes into each depth frame, see depth/smooth.js
+  const [convergence, setConvergence] = useState(saved.convergence ?? 0); // where the phone viewer's eyes meet, dioptres (0: ∞)
+  const [strength, setStrength] = useState(saved.strength ?? 1); // the phone viewer's eye separation, times true scale
+  const [periphery, setPeriphery] = useState(saved.periphery ?? 'outfill'); // the phone viewer beyond the camera: 'black' | 'outfill' | 'stretch'
+  const [filter, setFilterName] = useState(saved.filter ?? 'none');
+  const [background, setBackground] = useState(saved.background ?? 'passthrough'); // 'solid' | 'skybox' | 'passthrough' | 'testFeed'
+  const [menuOpen, setMenuOpen] = useState(saved.menuOpen ?? true); // shared by the windowed and XR panels
+  const [sections, setSections] = useState(saved.sections ?? ['depth', 'video']); // the open sections, see menu.js
   const [dropdown, setDropdown] = useState(null); // the dropdown whose list is open
 
   const actions = useMemo(
@@ -124,6 +127,7 @@ function useAppState() {
     [],
   );
   const state = { depthMode, smoothing, convergence, depthMesh, strength, periphery, filter, background, menuOpen, sections, dropdown };
+  useEffect(() => saveSettings(state), [depthMode, smoothing, convergence, depthMesh, strength, periphery, filter, background, menuOpen, sections]);
   return [state, actions];
 }
 

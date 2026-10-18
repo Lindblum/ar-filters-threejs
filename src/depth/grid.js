@@ -134,12 +134,18 @@ const _p = new THREE.Vector4();
 /**
  * Per cell, the view-space direction through it scaled to z = -1, so a
  * point at depth d is d times it. Float32Array of width * height * 3.
+ * `margin`: { x, y } cells of the grid that lie beyond each edge of the
+ * view (an outpainted grid, see DepthPassthrough), 0 by default.
  */
-export function cellRays(width, height, projectionInverse) {
+export function cellRays(width, height, projectionInverse, margin = { x: 0, y: 0 }) {
   const rays = new Float32Array(width * height * 3);
+  const innerW = width - 2 * margin.x;
+  const innerH = height - 2 * margin.y;
   for (let j = 0; j < height; j++) {
     for (let i = 0; i < width; i++) {
-      _p.set(((i + 0.5) / width) * 2 - 1, 1 - ((j + 0.5) / height) * 2, 0.5, 1).applyMatrix4(projectionInverse);
+      const u = (i - margin.x + 0.5) / innerW;
+      const v = (j - margin.y + 0.5) / innerH;
+      _p.set(u * 2 - 1, 1 - v * 2, 0.5, 1).applyMatrix4(projectionInverse);
       const k = (j * width + i) * 3;
       const z = -_p.z / _p.w;
       rays[k] = _p.x / _p.w / z;
@@ -150,9 +156,12 @@ export function cellRays(width, height, projectionInverse) {
   return rays;
 }
 
-/** A frame's cells in world (XROrigin) space: Float32Array of width * height * 3; unknown cells are 0, 0, 0. */
+/**
+ * A frame's cells in world (XROrigin) space: Float32Array of width * height * 3;
+ * unknown cells are 0, 0, 0. An outpainted frame carries its `margin` (see cellRays).
+ */
 export function unprojectFrame(frame, out = new Float32Array(frame.width * frame.height * 3)) {
-  const rays = cellRays(frame.width, frame.height, frame.projectionInverse);
+  const rays = cellRays(frame.width, frame.height, frame.projectionInverse, frame.margin);
   const e = frame.cameraToWorld.elements;
   for (let c = 0; c < frame.width * frame.height; c++) {
     const d = frame.depth[c];

@@ -22,6 +22,12 @@ import { FILTER_GLSL, filterUniforms } from './filters.js';
 //   the nearer side.
 // - Each grid square is split along the diagonal whose corners agree more,
 //   so triangles follow the edge instead of zigzagging across it.
+// - Outpainting (outpaint): the grid is extended by MARGIN of its size beyond
+//   each edge, and those cells, along with any unknown ones inside, take the
+//   depth spreading out from the known cells around them. Moving the phone
+//   shows past the edge of the last depth frame before the next arrives;
+//   there the surface carries on at about the depth beside it, instead of
+//   ending at the dome.
 // - A triangle across a depth jump (neighbouring cells whose depths differ
 //   by more than TEAR of the nearer one) isn't stretched into a rubber sheet
 //   between the object and what's behind it, nor dropped (a hole). It is
@@ -41,6 +47,7 @@ import { FILTER_GLSL, filterUniforms } from './filters.js';
 // off (Periphery: Black), black beyond a soft edge.
 
 const TEAR = 0.12;
+const MARGIN = 0.25; // the outpainted grid's extra size beyond each edge, as a fraction of the grid
 const DOME_QUANTILE = 0.75; // the dome sits behind most of the scene
 const DOME_DEFAULT = 2.5; // metres, before there is any depth
 const DOME_EASE = 0.1; // per frame, toward the latest depth
@@ -184,6 +191,80 @@ function depthQuantile(depth, q) {
 
 const joined = (p, q) => Math.abs(p - q) < TEAR * Math.min(p, q);
 
+/**
+ * The grid grown by MARGIN beyond each edge, with every unknown cell (the
+ * margin and any holes) filled from the known depth around it, by push-pull:
+ * log depth is averaged down a pyramid of halving grids (known cells only),
+ * then each unknown cell takes the coarser level's value, blended up level
+ * by level. So an edge's depth carries outward and evens out with distance,
+ * like the outfill's blur, at a fixed cost per frame. { depth, width,
+ * height, margin }.
+ */
+function outpaint(depth, width, height) {
+  const margin = { x: Math.round(width * MARGIN), y: Math.round(height * MARGIN) };
+  const w = width + 2 * margin.x;
+  const h = height + 2 * margin.y;
+  // level 0: log depth and weight (1 known, 0 not)
+  const value = new Float32Array(w * h);
+  const weight = new Float32Array(w * h);
+  for (let j = 0; j < height; j++)
+    for (let i = 0; i < width; i++) {
+      const d = depth[j * width + i];
+      if (!(d > 0)) continue;
+      const c = (j + margin.y) * w + i + margin.x;
+      value[c] = Math.log(d);
+      weight[c] = 1;
+    }
+  const levels = [{ value, weight, w, h }];
+  // push: each coarser cell, the weighted mean of the 2 x 2 below it
+  while (levels.at(-1).w > 1 || levels.at(-1).h > 1) {
+    const f = levels.at(-1);
+    const cw = Math.ceil(f.w / 2);
+    const ch = Math.ceil(f.h / 2);
+    const cv = new Float32Array(cw * ch);
+    const cwt = new Float32Array(cw * ch);
+    for (let j = 0; j < f.h; j++)
+      for (let i = 0; i < f.w; i++) {
+        const k = j * f.w + i;
+        const c = (j >> 1) * cw + (i >> 1);
+        cv[c] += f.value[k] * f.weight[k];
+        cwt[c] += f.weight[k];
+      }
+    for (let c = 0; c < cv.length; c++) {
+      if (cwt[c] > 0) cv[c] /= cwt[c];
+      cwt[c] = Math.min(cwt[c], 1);
+    }
+    levels.push({ value: cv, weight: cwt, w: cw, h: ch });
+  }
+  // pull: from the coarsest up, a cell short of full weight takes the rest from the level above (bilinear)
+  for (let l = levels.length - 2; l >= 0; l--) {
+    const f = levels[l];
+    const c = levels[l + 1];
+    for (let j = 0; j < f.h; j++)
+      for (let i = 0; i < f.w; i++) {
+        const k = j * f.w + i;
+        if (f.weight[k] >= 1) continue;
+        const x = Math.min(Math.max((i + 0.5) / 2 - 0.5, 0), c.w - 1);
+        const y = Math.min(Math.max((j + 0.5) / 2 - 0.5, 0), c.h - 1);
+        const x0 = Math.floor(x);
+        const y0 = Math.floor(y);
+        const x1 = Math.min(x0 + 1, c.w - 1);
+        const y1 = Math.min(y0 + 1, c.h - 1);
+        const fx = x - x0;
+        const fy = y - y0;
+        const coarse =
+          (c.value[y0 * c.w + x0] * (1 - fx) + c.value[y0 * c.w + x1] * fx) * (1 - fy) +
+          (c.value[y1 * c.w + x0] * (1 - fx) + c.value[y1 * c.w + x1] * fx) * fy;
+        f.value[k] = f.value[k] * f.weight[k] + coarse * (1 - f.weight[k]);
+        f.weight[k] = 1;
+      }
+  }
+  const out = new Float32Array(w * h);
+  const known = levels.at(-1).weight[0] > 0; // anything known at all
+  if (known) for (let k = 0; k < out.length; k++) out[k] = Math.exp(value[k]);
+  return { depth: out, width: w, height: h, margin };
+}
+
 /** The known depths within `r` cells of (i, j), itself included. */
 function neighbours(depth, width, height, i, j, out, r = 1) {
   out.length = 0;
@@ -312,11 +393,12 @@ export function DepthPassthrough({ surface = true, outfill: outfillOn = true }) 
       geometry.deleteAttribute('position');
       return;
     }
-    const { width, height } = frame;
-    const depth = snapEdges(frame.depth, width, height);
+    const grown = outpaint(snapEdges(frame.depth, frame.width, frame.height), frame.width, frame.height);
+    const { depth, width, height, margin } = grown;
     const positions = new Float32Array(width * height * 6);
-    unprojectFrame({ ...frame, depth }, positions.subarray(0, width * height * 3));
-    unprojectFrame({ ...frame, depth: backgroundDepth(depth, width, height) }, positions.subarray(width * height * 3));
+    const at = { ...frame, width, height, margin };
+    unprojectFrame({ ...at, depth }, positions.subarray(0, width * height * 3));
+    unprojectFrame({ ...at, depth: backgroundDepth(depth, width, height) }, positions.subarray(width * height * 3));
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setIndex(gridIndex(depth, width, height));
     geometry.computeBoundingSphere();
