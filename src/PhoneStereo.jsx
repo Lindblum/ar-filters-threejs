@@ -58,6 +58,7 @@ export const PHONE_AR_SESSION_INIT = {
  * camera sees far less than a viewer's lenses show (roughly 65° against
  * 100°), so at true scale its image is a window in the middle of each eye.
  * Its long side runs across the eyes (the viewer holds the phone sideways).
+ * A ratio of angles, as the lens magnifies angles evenly (see CardboardLens.zoom).
  */
 function stretchZoom(lens) {
   const p = liveCamera.projection.elements;
@@ -65,7 +66,7 @@ function stretchZoom(lens) {
   const across = Math.max(1 / p[0], 1 / p[5]); // the camera's half-extents, in tangent units
   const along = Math.min(1 / p[0], 1 / p[5]);
   const { outer, inner, down, up } = lens.tangents;
-  return Math.max(1, (outer + inner) / 2 / across, (up + down) / 2 / along);
+  return Math.max(1, Math.atan((outer + inner) / 2) / Math.atan(across), Math.atan((up + down) / 2) / Math.atan(along));
 }
 
 /**

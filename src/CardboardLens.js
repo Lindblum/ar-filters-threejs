@@ -65,9 +65,12 @@ export class CardboardLens {
   /** The eyes' separation, times the lens spacing: 1 is true to scale, more exaggerates depth. */
   ipdScale = 1;
   /**
-   * Magnification: each eye renders a field of view this many times
-   * narrower, which the lens pass spreads over the whole lens. 1 is true
-   * to scale; more stretches a narrower camera image to fill the viewer.
+   * Magnification: every angle from the lens centre is seen this many
+   * times wider, so a narrower camera image fills the viewer. 1 is true to
+   * scale. Angles are magnified evenly (θ_seen = zoom·θ) rather than the
+   * flat image scaled (tan θ_seen = zoom·tan θ): scaling the image
+   * magnifies the centre by the full zoom but the edges far less, which
+   * makes the middle bulge toward you like a magnifying glass.
    */
   zoom = 1;
   /**
@@ -89,6 +92,8 @@ export class CardboardLens {
         lensDistance: { value: VIEWER.screenLensDistance },
         k: { value: new THREE.Vector2(...VIEWER.distortion) },
         tangents: { value: new THREE.Vector4() }, // left eye: outer, inner, down, up
+        renderTangents: { value: new THREE.Vector4() }, // the same, of the rendered eye (see eyeTangent)
+        zoom: { value: 1 },
         // 0: output as laid out; +1 / -1: the layout is landscape but the
         // output portrait (a phone turned sideways), so turn by 90 degrees
         rotation: { value: 0 },
@@ -107,6 +112,8 @@ export class CardboardLens {
         uniform float lensDistance;
         uniform vec2 k;
         uniform vec4 tangents;
+        uniform vec4 renderTangents;
+        uniform float zoom;
         uniform float rotation;
         varying vec2 vUv;
         void main() {
@@ -122,7 +129,17 @@ export class CardboardLens {
           // this eye's limits: the left eye's outer side is its left, the right eye's its right
           float left = eye < 0.5 ? tangents.x : tangents.y;
           float right = eye < 0.5 ? tangents.y : tangents.x;
-          vec2 e = vec2((t.x + left) / (left + right), (t.y + tangents.z) / (tangents.z + tangents.w));
+          if (t.x < -left || t.x > right || t.y < -tangents.z || t.y > tangents.w) {
+            gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+            #include <colorspace_fragment>
+            return;
+          }
+          // magnified: the direction rendered there, at 1 / zoom of the angle it is seen at
+          float r = length(t);
+          vec2 w = zoom > 1.0 && r > 1e-6 ? t * (tan(atan(r) / zoom) / r) : t;
+          float rLeft = eye < 0.5 ? renderTangents.x : renderTangents.y;
+          float rRight = eye < 0.5 ? renderTangents.y : renderTangents.x;
+          vec2 e = vec2((w.x + rLeft) / (rLeft + rRight), (w.y + renderTangents.z) / (renderTangents.z + renderTangents.w));
           if (e.x < 0.0 || e.x > 1.0 || e.y < 0.0 || e.y > 1.0) {
             gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
           } else {
@@ -155,6 +172,11 @@ export class CardboardLens {
     u.rotation.value = rotation;
   }
 
+  /** A view limit's tangent as rendered: at 1 / zoom of the angle it is seen at. */
+  eyeTangent(t) {
+    return this.zoom > 1 ? Math.tan(Math.atan(t) / this.zoom) : t;
+  }
+
   /**
    * Point `eye` (0 left, 1 right) from the head: offset half the lens
    * spacing sideways, with the frustum that eye's lens can see. Sets the
@@ -165,13 +187,14 @@ export class CardboardLens {
     eye.matrix.copy(headMatrixWorld).multiply(_offset.makeTranslation((side * VIEWER.interLensDistance * this.ipdScale) / 2, 0, 0));
     eye.matrixWorld.copy(eye.matrix);
     eye.matrixWorldInverse.copy(eye.matrixWorld).invert();
-    const { outer, inner, down, up } = this.tangents;
-    const z = near / this.zoom;
+    const [outer, inner, down, up] = ['outer', 'inner', 'down', 'up'].map((k) => this.eyeTangent(this.tangents[k]));
+    this.material.uniforms.renderTangents.value.set(outer, inner, down, up);
+    this.material.uniforms.zoom.value = this.zoom;
     // the convergence point, straight ahead of the head, as a tangent from this eye
     const shift = (-side * VIEWER.interLensDistance * this.ipdScale * this.convergence) / 2;
     const left = (index === 0 ? outer : inner) - shift;
     const right = (index === 0 ? inner : outer) + shift;
-    eye.projectionMatrix.makePerspective(-left * z, right * z, up * z, -down * z, near, far);
+    eye.projectionMatrix.makePerspective(-left * near, right * near, up * near, -down * near, near, far);
     eye.projectionMatrixInverse.copy(eye.projectionMatrix).invert();
   }
 
