@@ -14,16 +14,26 @@ import { FILTER_GLSL, filterUniforms } from './filters.js';
 // even when depth arrives a few frames late. A child of the XROrigin:
 // positions are in its space.
 //
-// Triangles across a depth jump (neighbouring cells whose depths differ by
-// more than TEAR of the nearer one) are left out: those are object edges,
-// which would otherwise stretch into rubber sheets between the object and
-// what's behind it. A slope, however steep, changes depth a little per cell
-// and stays whole.
+// Object edges get three treatments, so they stay clean steps rather than
+// holes or smears:
+// - Snapping (snapEdges): upsampling and smoothing blend near and far across
+//   an edge, leaving cells at depths in between, floating in mid air. A cell
+//   with almost no neighbours near its own depth, beside a jump, is moved to
+//   the nearer side.
+// - Each grid square is split along the diagonal whose corners agree more,
+//   so triangles follow the edge instead of zigzagging across it.
+// - A triangle across a depth jump (neighbouring cells whose depths differ
+//   by more than TEAR of the nearer one) isn't stretched into a rubber sheet
+//   between the object and what's behind it, nor dropped (a hole). It is
+//   drawn pushed back to the background: each corner at the farthest depth
+//   around it. That fills the gap the object leaves at the depth behind it.
+//   A slope, however steep, changes depth a little per cell and stays whole.
 //
 // The dome: a sphere around the camera at the scene's typical depth
 // (DOME_QUANTILE of the latest frame), behind everything. Where the camera
-// can see, it shows the live image at true scale; that fills the surface's
-// tears, at a depth both eyes agree on rather than at infinity. Everywhere
+// can see, it shows the live image at true scale, behind anything the surface
+// doesn't cover (unknown cells), at a depth both eyes agree on rather than at
+// infinity. Everywhere
 // else, all the way round, it shows the outfill: the image's edge carried
 // outward and blurred more the further it goes (mip levels of a small copy
 // of the image), so the viewer's periphery, which the camera never sees,
@@ -172,19 +182,94 @@ function depthQuantile(depth, q) {
   return known.length ? known[Math.min(known.length - 1, Math.floor(q * known.length))] : null;
 }
 
-/** Triangle indices over the grid, leaving out unknown cells and triangles across depth jumps. */
+const joined = (p, q) => Math.abs(p - q) < TEAR * Math.min(p, q);
+
+/** The known depths within `r` cells of (i, j), itself included. */
+function neighbours(depth, width, height, i, j, out, r = 1) {
+  out.length = 0;
+  for (let y = Math.max(0, j - r); y <= Math.min(height - 1, j + r); y++)
+    for (let x = Math.max(0, i - r); x <= Math.min(width - 1, i + r); x++) {
+      const d = depth[y * width + x];
+      if (d > 0) out.push(d);
+    }
+  return out;
+}
+
+/**
+ * Depth with the cells floating between the two sides of an edge moved to
+ * the side they're nearer (in ratio). The sides are the nearest and
+ * farthest depths two cells away; a cell floats if it is joined to neither
+ * and to at most SNAP_FRIENDS of its 8 neighbours (a slope's cells have
+ * more). A thin object, nearer than all around it, is a side, so it stays.
+ * Twice: the first pass can leave a cell beside a band it didn't see.
+ */
+const SNAP_FRIENDS = 3;
+function snapEdges(depth, width, height) {
+  return snapPass(snapPass(depth, width, height), width, height);
+}
+
+function snapPass(depth, width, height) {
+  const out = depth.slice();
+  const around = [];
+  for (let j = 0; j < height; j++) {
+    for (let i = 0; i < width; i++) {
+      const c = j * width + i;
+      const d = depth[c];
+      if (!(d > 0)) continue;
+      let friends = -1; // itself
+      for (const n of neighbours(depth, width, height, i, j, around)) if (joined(n, d)) friends++;
+      if (friends > SNAP_FRIENDS) continue;
+      let min = Infinity;
+      let max = 0;
+      for (const n of neighbours(depth, width, height, i, j, around, 2)) {
+        min = Math.min(min, n);
+        max = Math.max(max, n);
+      }
+      if (!joined(d, min) && !joined(d, max)) out[c] = Math.log(d / min) < Math.log(max / d) ? min : max;
+    }
+  }
+  return out;
+}
+
+/** Each cell's background: the farthest known depth around it. */
+function backgroundDepth(depth, width, height) {
+  const out = new Float32Array(depth.length);
+  const around = [];
+  for (let j = 0; j < height; j++)
+    for (let i = 0; i < width; i++) if (depth[j * width + i] > 0) out[j * width + i] = Math.max(...neighbours(depth, width, height, i, j, around));
+  return out;
+}
+
+/**
+ * Triangle indices over the grid, leaving out unknown cells. Vertices
+ * 0..n-1 are the cells at their depth, n..2n-1 at their background depth
+ * (see backgroundDepth): a triangle across a depth jump uses those.
+ */
 function gridIndex(depth, width, height) {
   const index = [];
-  const joined = (a, b) => Math.abs(depth[a] - depth[b]) < TEAR * Math.min(depth[a], depth[b]);
-  const keep = (a, b, c) => depth[a] > 0 && depth[b] > 0 && depth[c] > 0 && joined(a, b) && joined(b, c) && joined(a, c);
+  const n = width * height;
+  const triangle = (a, b, c) => {
+    if (!(depth[a] > 0 && depth[b] > 0 && depth[c] > 0)) return;
+    const whole = joined(depth[a], depth[b]) && joined(depth[b], depth[c]) && joined(depth[a], depth[c]);
+    if (whole) index.push(a, b, c);
+    else index.push(a + n, b + n, c + n);
+  };
   for (let j = 0; j < height - 1; j++) {
     for (let i = 0; i < width - 1; i++) {
-      const a = j * width + i;
-      const b = a + 1;
-      const c = a + width;
-      const d = c + 1;
-      if (keep(a, c, b)) index.push(a, c, b);
-      if (keep(b, c, d)) index.push(b, c, d);
+      const a = j * width + i; // top left
+      const b = a + 1; // top right
+      const c = a + width; // bottom left
+      const d = c + 1; // bottom right
+      // split along the diagonal whose ends agree more, so an edge isn't cut across
+      const ad = depth[a] > 0 && depth[d] > 0 ? Math.abs(Math.log(depth[a] / depth[d])) : Infinity;
+      const bc = depth[b] > 0 && depth[c] > 0 ? Math.abs(Math.log(depth[b] / depth[c])) : Infinity;
+      if (ad < bc) {
+        triangle(a, c, d);
+        triangle(a, d, b);
+      } else {
+        triangle(a, c, b);
+        triangle(b, c, d);
+      }
     }
   }
   return index;
@@ -227,8 +312,13 @@ export function DepthPassthrough({ surface = true, outfill: outfillOn = true }) 
       geometry.deleteAttribute('position');
       return;
     }
-    geometry.setAttribute('position', new THREE.BufferAttribute(unprojectFrame(frame), 3));
-    geometry.setIndex(gridIndex(frame.depth, frame.width, frame.height));
+    const { width, height } = frame;
+    const depth = snapEdges(frame.depth, width, height);
+    const positions = new Float32Array(width * height * 6);
+    unprojectFrame({ ...frame, depth }, positions.subarray(0, width * height * 3));
+    unprojectFrame({ ...frame, depth: backgroundDepth(depth, width, height) }, positions.subarray(width * height * 3));
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setIndex(gridIndex(depth, width, height));
     geometry.computeBoundingSphere();
     domeDepth.current.target = depthQuantile(frame.depth, DOME_QUANTILE) ?? domeDepth.current.target;
   }, [version, geometry]);
