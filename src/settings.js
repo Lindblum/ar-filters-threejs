@@ -5,9 +5,9 @@
 // to the default, never put the menu in a state it can't show.
 
 import { FILTERS } from './filters.js';
-import { BACKGROUNDS, CONVERGENCE, DEPTH_MODES, PERIPHERIES, SECTIONS, SMOOTHING, STRENGTH } from './menu.js';
+import { BACKGROUNDS, CONVERGENCE, DEPTH_MODES, PERIPHERIES, SECTIONS, SMOOTHING, STRENGTH, ZOOM } from './menu.js';
 
-const COOKIE = 'depth-xr-settings';
+const COOKIE = 'ar-filters-settings';
 const MAX_AGE = 60 * 60 * 24 * 365; // seconds: a year
 
 const oneOf = (list) => (v) => list.includes(v);
@@ -20,6 +20,7 @@ const VALID = {
   smoothing: inRange(SMOOTHING),
   convergence: inRange(CONVERGENCE),
   strength: inRange(STRENGTH),
+  zoom: inRange(ZOOM),
   periphery: oneOf(PERIPHERIES),
   filter: oneOf(FILTERS),
   background: oneOf(BACKGROUNDS),
@@ -27,7 +28,7 @@ const VALID = {
   sections: (v) => Array.isArray(v) && v.every((s) => SECTIONS.includes(s)),
 };
 
-/** The directory this page is served from, e.g. "/room-mesh-threejs/". */
+/** The directory this page is served from, e.g. "/ar-filters-threejs/". */
 const cookiePath = () => location.pathname.replace(/[^/]*$/, '');
 
 /** The saved settings that are still valid: { [name]: value }, possibly empty. */

@@ -85,7 +85,7 @@ class DepthModel {
         const resolve = this.pending.get(msg.id);
         this.pending.delete(msg.id);
         this.busy = false;
-        if (msg.type === 'frame-error') console.warn('[depth-xr] depth frame failed:', msg.message);
+        if (msg.type === 'frame-error') console.warn('[ar-filters] depth frame failed:', msg.message);
         resolve?.(msg.type === 'depth' ? msg : null);
       }
     };
@@ -105,7 +105,7 @@ class DepthModel {
     this.state = 'failed';
     this.error = message;
     this.abandon();
-    console.warn('[depth-xr] depth model unavailable:', message);
+    console.warn('[ar-filters] depth model unavailable:', message);
     this.notify();
   }
 

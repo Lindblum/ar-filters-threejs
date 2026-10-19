@@ -1,8 +1,8 @@
-# Depth XR
+# AR Filters
 
-Phone AR with depth: look around through an Android phone in a Cardboard-style viewer and see the camera image in stereo, with real parallax, through live video filters.
+Live video filters for the world around you: look through an Android phone in a Cardboard-style viewer and see the camera image filtered, in stereo, with real parallax from depth.
 
-Live: https://lindblum.github.io/room-mesh-threejs/
+Live: https://lindblum.github.io/ar-filters-threejs/
 
 ## Where the depth comes from
 
@@ -14,13 +14,14 @@ A web page can't reconstruct depth from a Quest 2's cameras, but an Android phon
 
 On top of that, **Depth Anything V2 Small** runs on the camera image in a worker (onnxruntime-web, WebGPU), as in the 2D-3D video converter extension (youtube-3d-convert-addon). Its depth is sharp but relative, so it is scaled to metres against ARCore's depth or, without that, against hit tests on real surfaces. Every depth sample carries an uncertainty (sigma).
 
-Each eye then sees the live camera image at its depth, drawn per pixel the way the 2D-3D converter does it: each eye's view rays are traced through the depth map, so there is no mesh to tear or step, and each eye sees the scene from its own side. Everything is true to scale: the camera sees less than a viewer's lenses show, so beyond the camera's view a blurred outfill carries the image's edges out into the periphery, all the way round (or black, or the image stretched: Video → Periphery).
+Each eye then sees the live camera image at its depth, drawn per pixel the way the 2D-3D converter does it: each eye's view rays are traced through the depth map, so there is no mesh to tear or step, and each eye sees the scene from its own side. Everything is true to scale: the camera sees less than a viewer's lenses show, so beyond the camera's view a blurred outfill carries the image's edges out into the periphery, all the way round (or black: Video → Periphery), unless Video → Zoom magnifies the image to fill the view.
 
 ## Use
 
 - **Video → View Mode → XR: Phone Viewer** for stereo in a viewer, or **XR: Phone AR** for one view.
 - **Video → Filter**: Grayscale, Sepia, Invert, Posterize, Edges, Cartoon, Night Vision, Thermal, and Depth Colours, which needs depth. `F` cycles them on a desktop.
-- **Video → Periphery**: what the viewer shows beyond the camera's narrower view: Black, Outfill (the image's edges carried out, blurred), or Stretch (the image magnified to fill; turning then moves it a little fast).
+- **Video → Zoom**: how far the viewer magnifies the camera image, from **Actual FoV** (true to scale) to **Fill** (magnified to fill the lenses; turning then moves it faster than your head). The lens correction magnifies view angles evenly, so the image doesn't bulge as it grows.
+- **Video → Periphery**: what the viewer shows beyond the camera's narrower view: Black or Outfill (the image's edges carried out, blurred).
 - **Depth → Algorithm**, how depth is made:
   - **Auto**: ARCore's depth, sharpened by Depth Anything V2 while it keeps up.
   - **ARCore**: ARCore's depth alone.
@@ -31,7 +32,7 @@ Each eye then sees the live camera image at its depth, drawn per pixel the way t
 - **Depth → 2D-3D** turns the camera image into 3D from its depth; off shows it flat, at the scene's typical distance. The **3D Strength** slider scales the eye separation from 0 to 3× (1× is true to scale). **Convergence** sets where the eyes meet, from ∞ (true to life) in to 0.5 m.
 - On a desktop, **Video → Background → Test Feed** runs the depth model on your webcam, or on a video file dropped on the page.
 
-The model (50 MB) downloads from Hugging Face on first use and is cached by the browser.
+The depth models download from Hugging Face on first use and are cached by the browser.
 
 ## Develop
 

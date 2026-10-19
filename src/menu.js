@@ -7,7 +7,7 @@
 
 import { FILTERS, FILTER_LABELS } from './filters.js';
 
-export const MENU_TITLE = 'Depth XR';
+export const MENU_TITLE = 'AR Filters';
 
 /** Video → Background, in list order (passthrough, then the desktop's test feed, last). */
 export const BACKGROUNDS = ['solid', 'skybox', 'passthrough', 'testFeed'];
@@ -168,12 +168,20 @@ export const SMOOTHING = { min: 0, max: 1, step: 0.05 };
 const smoothingLabel = (s) => (s > 0 ? `${Math.round(s * 100)}%` : 'Off');
 
 /**
- * Video → Periphery: what the phone viewer shows beyond the camera's view,
- * which is narrower than the lenses': Black, the blurred Outfill, or the
- * image Stretched (magnified) to fill the viewer.
+ * Video → Zoom: how far the phone viewer magnifies the camera image, 0..1.
+ * 0 is the camera's actual field of view, true to scale; 1 magnifies it to
+ * fill the viewer (see PhoneStereo.jsx).
  */
-export const PERIPHERIES = ['black', 'outfill', 'stretch'];
-const PERIPHERY_LABELS = { black: 'Black', outfill: 'Outfill', stretch: 'Stretch' };
+export const ZOOM = { min: 0, max: 1, step: 0.05 };
+const zoomLabel = (z) => (z <= 0 ? 'Actual FoV' : z >= 1 ? 'Fill' : `${Math.round(z * 100)}%`);
+
+/**
+ * Video → Periphery: what the phone viewer shows beyond the camera's view,
+ * which is narrower than the lenses' (unless zoomed to fill): Black or the
+ * blurred Outfill.
+ */
+export const PERIPHERIES = ['black', 'outfill'];
+const PERIPHERY_LABELS = { black: 'Black', outfill: 'Outfill' };
 
 /** The dropdowns' ids. */
 export const DROPDOWNS = ['depthMode', 'filter', 'periphery', 'background', 'view'];
@@ -182,7 +190,7 @@ export const DROPDOWNS = ['depthMode', 'filter', 'periphery', 'background', 'vie
 export const TOGGLES = ['depthMesh'];
 
 /** The sliders' ids. */
-export const SLIDERS = ['convergence', 'smoothing', 'strength'];
+export const SLIDERS = ['convergence', 'smoothing', 'strength', 'zoom'];
 
 /** One-shot actions, by button id. */
 export const ACTIONS = [];
@@ -255,11 +263,18 @@ function videoItems(state, env) {
       dropdown: dropdown(state, 'filter', FILTERS.map((f) => FILTER_LABELS[f]), FILTERS.indexOf(state.filter)),
     },
     {
+      id: 'zoom',
+      label: `Zoom: ${zoomLabel(state.zoom)}`,
+      icon: 'zoom',
+      title:
+        "Magnifies the camera image in the phone viewer: Actual FoV is true to scale, Fill magnifies it to fill the lenses (turning then moves it faster than your head)",
+      slider: { ...ZOOM, value: state.zoom },
+    },
+    {
       id: 'periphery',
       label: `Periphery: ${PERIPHERY_LABELS[state.periphery]}`,
       icon: 'phoneViewer',
-      title:
-        "The phone viewer beyond the camera's narrower view. Black; Outfill: the image's edges carried out, blurred; Stretch: the image magnified to fill (turning moves it a little fast)",
+      title: "The phone viewer beyond the camera's narrower view. Black; Outfill: the image's edges carried out, blurred",
       dropdown: dropdown(state, 'periphery', PERIPHERIES.map((p) => PERIPHERY_LABELS[p]), PERIPHERIES.indexOf(state.periphery)),
     },
     {
@@ -323,6 +338,7 @@ const SAMPLE_STATE = {
   smoothing: 0.5,
   convergence: 0,
   strength: 1,
+  zoom: 0,
   periphery: PERIPHERIES[1],
   filter: FILTERS[0],
   background: 'solid',
@@ -344,6 +360,7 @@ export function possibleLabels(env) {
     ...sliderValues(STRENGTH).map((strength) => ({ strength })),
     ...sliderValues(CONVERGENCE).map((convergence) => ({ convergence })),
     ...sliderValues(SMOOTHING).map((smoothing) => ({ smoothing })),
+    ...sliderValues(ZOOM).map((zoom) => ({ zoom })),
     ...PERIPHERIES.map((periphery) => ({ periphery })),
     ...FILTERS.map((filter) => ({ filter })),
     ...BACKGROUNDS.map((background) => ({ background })),

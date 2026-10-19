@@ -98,7 +98,8 @@ function useAppState() {
   const [smoothing, setSmoothing] = useState(saved.smoothing ?? 0.5); // how much of the past goes into each depth frame, see depth/smooth.js
   const [convergence, setConvergence] = useState(saved.convergence ?? 0); // where the phone viewer's eyes meet, dioptres (0: ∞)
   const [strength, setStrength] = useState(saved.strength ?? 1); // the phone viewer's eye separation, times true scale
-  const [periphery, setPeriphery] = useState(saved.periphery ?? 'outfill'); // the phone viewer beyond the camera: 'black' | 'outfill' | 'stretch'
+  const [zoom, setZoom] = useState(saved.zoom ?? 0); // the phone viewer's magnification, 0 (actual FoV) .. 1 (fill), see PhoneStereo.jsx
+  const [periphery, setPeriphery] = useState(saved.periphery ?? 'outfill'); // the phone viewer beyond the camera: 'black' | 'outfill'
   const [filter, setFilterName] = useState(saved.filter ?? 'none');
   const [background, setBackground] = useState(saved.background ?? 'passthrough'); // 'solid' | 'skybox' | 'passthrough' | 'testFeed'
   const [menuOpen, setMenuOpen] = useState(saved.menuOpen ?? true); // shared by the windowed and XR panels
@@ -117,7 +118,7 @@ function useAppState() {
       toggleDropdown: (id) => setDropdown((d) => (d === id ? null : id)),
       closeDropdown: () => setDropdown(null),
       /** A slider's new value. */
-      set: (id, value) => ({ strength: setStrength, convergence: setConvergence, smoothing: setSmoothing })[id](value),
+      set: (id, value) => ({ strength: setStrength, convergence: setConvergence, smoothing: setSmoothing, zoom: setZoom })[id](value),
       /** A choice from a dropdown's list (see dropdownChoices), which then closes. */
       pick: (id, choice) => {
         ({ depthMode: setDepthMode, periphery: setPeriphery, filter: setFilterName, background: setBackground })[id](choice);
@@ -126,8 +127,8 @@ function useAppState() {
     }),
     [],
   );
-  const state = { depthMode, smoothing, convergence, depthMesh, strength, periphery, filter, background, menuOpen, sections, dropdown };
-  useEffect(() => saveSettings(state), [depthMode, smoothing, convergence, depthMesh, strength, periphery, filter, background, menuOpen, sections]);
+  const state = { depthMode, smoothing, convergence, depthMesh, strength, zoom, periphery, filter, background, menuOpen, sections, dropdown };
+  useEffect(() => saveSettings(state), [depthMode, smoothing, convergence, depthMesh, strength, zoom, periphery, filter, background, menuOpen, sections]);
   return [state, actions];
 }
 
@@ -400,7 +401,7 @@ export default function App() {
       }
       else if (phone) {
         enterCardboard({ landscape: stereo }).then((sensors) => {
-          if (!sensors) console.warn('[depth-xr] motion sensor access denied; the view will not follow the phone');
+          if (!sensors) console.warn('[ar-filters] motion sensor access denied; the view will not follow the phone');
         });
         setHandheld(true);
       } else if (support.ar) await enterWith(HEADSET_SESSION_INIT, () => store.enterAR());
@@ -409,7 +410,7 @@ export default function App() {
         await enterWith(HEADSET_SESSION_INIT, () => store.enterVR());
       }
     } catch (e) {
-      console.error(`[depth-xr] could not start ${label}`, e);
+      console.error(`[ar-filters] could not start ${label}`, e);
       setError(`Couldn't start ${label}: ${describe(e)}`);
     }
   };

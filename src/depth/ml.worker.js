@@ -11,7 +11,7 @@
 // `data` is relative inverse depth: larger is nearer, in no particular unit.
 import * as ort from 'onnxruntime-web/webgpu';
 
-const CACHE = 'depth-xr-models';
+const CACHE = 'ar-filters-models';
 const DA2 = 'https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/main/onnx';
 const DA3 = 'https://huggingface.co/onnx-community/depth-anything-v3-small/resolve/main/onnx';
 const MIDAS = 'https://huggingface.co/InDepthDesigns/midas_v21_small_256/resolve/main';
@@ -126,7 +126,7 @@ async function init(model) {
         loadedModel = model;
         return send({ type: 'ready', model, provider });
       } catch (e) {
-        console.warn(`[depth-xr] ${spec.name} ${label} failed:`, e);
+        console.warn(`[ar-filters] ${spec.name} ${label} failed:`, e);
         lastError = e;
       }
     }

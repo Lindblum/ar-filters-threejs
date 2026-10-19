@@ -11,6 +11,7 @@ import flowchart from 'lineicons/assets/svgs/regular/vector-nodes-7.svg?raw';
 import eye from 'lineicons/assets/svgs/regular/eye.svg?raw';
 import palette from 'lineicons/assets/svgs/regular/colour-palette-3.svg?raw';
 import layers from 'lineicons/assets/svgs/regular/layers-1.svg?raw';
+import searchPlus from 'lineicons/assets/svgs/regular/search-plus.svg?raw';
 
 // Lineicons ship with a fixed fill; recolour to follow the surrounding text
 // and size to the font.
@@ -109,6 +110,7 @@ const ICONS = {
   algorithm: recolour(flowchart),
   eye: recolour(eye),
   filter: recolour(palette),
+  zoom: recolour(searchPlus),
   mesh,
   points,
   convergence,

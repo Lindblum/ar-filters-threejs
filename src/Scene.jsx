@@ -64,7 +64,7 @@ class AssetBoundary extends Component {
     return { failed: true };
   }
   componentDidCatch(error) {
-    console.warn('[depth-xr] asset failed to load, continuing without it:', error.message);
+    console.warn('[ar-filters] asset failed to load, continuing without it:', error.message);
   }
   render() {
     return this.state.failed ? this.props.fallback ?? null : this.props.children;
@@ -201,7 +201,7 @@ export default function Scene({ state, menu, phone, testFeed }) {
         <CameraBackground
           split={state.stereo}
           onError={(e) => {
-            console.warn('[depth-xr] camera unavailable, showing the skybox instead:', e?.message ?? e);
+            console.warn('[ar-filters] camera unavailable, showing the skybox instead:', e?.message ?? e);
             setCameraFailed(true);
           }}
         />
@@ -210,7 +210,7 @@ export default function Scene({ state, menu, phone, testFeed }) {
       )}
       {state.view === 'sbs' && !immersive && <SideBySide />}
       {state.view === 'interlaced' && !immersive && <Interlaced />}
-      {phoneStereo && <PhoneStereoXR strength={state.strength} convergence={state.convergence} stretch={state.periphery === 'stretch'} />}
+      {phoneStereo && <PhoneStereoXR strength={state.strength} convergence={state.convergence} zoom={state.zoom} />}
       {!inSession && <FloorGrid />}
       <DepthSource mode={state.depthMode} smoothing={state.smoothing} video={testFeed} />
       <Player origin={origin} menu={menuPanel}>

@@ -1,5 +1,5 @@
 {
-  "name": "room-mesh-threejs",
+  "name": "ar-filters-threejs",
   "private": true,
   "version": "1.0.0",
   "description": "Phone AR with depth: stereo passthrough with real parallax and live video filters, from ARCore depth and Depth Anything in the browser",

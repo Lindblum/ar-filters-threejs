@@ -198,7 +198,7 @@ export function DepthSource({ mode, smoothing = 0.5, video }) {
     capture
       .captureTexture(gl, liveCamera.texture, modelInputSize(kind === 'model' ? model : 'da2', aspect))
       .then((image) => process(image, base, kind, arcore?.depth ?? null, status))
-      .catch((e) => console.warn('[depth-xr] camera capture failed:', e))
+      .catch((e) => console.warn('[ar-filters] camera capture failed:', e))
       .finally(() => {
         state.busy = false;
       });
@@ -350,7 +350,7 @@ export function DepthSource({ mode, smoothing = 0.5, video }) {
             if (a.session === xrSession) a.sources = sources;
             else sources.forEach((s) => s.cancel());
           })
-          .catch((e) => console.warn('[depth-xr] no hit testing; relative depth will use an assumed scale without ARCore depth:', e));
+          .catch((e) => console.warn('[ar-filters] no hit testing; relative depth will use an assumed scale without ARCore depth:', e));
     }
     if (!a.sources.length || t - a.lastT < INTERVAL) return;
     a.lastT = t;

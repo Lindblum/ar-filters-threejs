@@ -58,32 +58,38 @@ export const PHONE_AR_SESSION_INIT = {
  * camera sees far less than a viewer's lenses show (roughly 65° against
  * 100°), so at true scale its image is a window in the middle of each eye.
  * Its long side runs across the eyes (the viewer holds the phone sideways).
- * A ratio of angles, as the lens magnifies angles evenly (see CardboardLens.zoom).
+ * A ratio of angles, as the lens magnifies angles evenly (see CardboardLens.zoom),
+ * taken to each eye's farthest edge (its outer side is wider than its inner)
+ * so no periphery shows anywhere. The magnification is radial, so a lens
+ * edge is furthest from the centre straight along its axis: the corners
+ * need no more.
  */
-function stretchZoom(lens) {
+function fillZoom(lens) {
   const p = liveCamera.projection.elements;
   if (!liveCamera.texture || !p[0] || !p[5]) return 1;
   const across = Math.max(1 / p[0], 1 / p[5]); // the camera's half-extents, in tangent units
   const along = Math.min(1 / p[0], 1 / p[5]);
   const { outer, inner, down, up } = lens.tangents;
-  return Math.max(1, Math.atan((outer + inner) / 2) / Math.atan(across), Math.atan((up + down) / 2) / Math.atan(along));
+  return Math.max(1, Math.atan(Math.max(outer, inner)) / Math.atan(across), Math.atan(Math.max(up, down)) / Math.atan(along));
 }
 
 /**
  * `strength`: the eyes' separation, times the viewer's lens spacing (1: true
  * to scale). `convergence`: where the eyes meet, in dioptres (0: parallel,
- * at infinity). `stretch`: magnify both eyes alike until the camera image fills
- * them (see stretchZoom); otherwise everything is true to scale and the
- * depth passthrough's dome handles the periphery.
+ * at infinity). `zoom`: 0..1, how far to magnify both eyes alike, from the
+ * camera's actual field of view, true to scale (the depth passthrough's dome
+ * fills the periphery), to its image filling them (see fillZoom). The
+ * magnification goes geometrically between the two, so each step of the
+ * slider magnifies by the same factor.
  */
-export function PhoneStereoXR({ strength = 1, convergence = 0, stretch = false }) {
+export function PhoneStereoXR({ strength = 1, convergence = 0, zoom = 0 }) {
   const gl = useThree((s) => s.gl);
   const lens = useMemo(() => new CardboardLens(), []);
   useEffect(() => () => lens.dispose(), [lens]);
   lens.ipdScale = strength;
   lens.convergence = convergence;
-  const stretchRef = useRef(stretch);
-  stretchRef.current = stretch;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
 
   // Render the two eyes (via the camera override below) into an offscreen
   // image the size of the XR framebuffer, then draw it through the lens warp
@@ -93,7 +99,7 @@ export function PhoneStereoXR({ strength = 1, convergence = 0, stretch = false }
     if (!xrTarget) return;
     updateLayout(gl, xrTarget.width, xrTarget.height);
     lens.setLayout(layout.width, layout.height, layout.rotation);
-    lens.zoom = stretchRef.current ? stretchZoom(lens) : 1;
+    lens.zoom = fillZoom(lens) ** zoomRef.current;
     gl.setRenderTarget(lens.target);
     gl.render(scene, camera);
     // a plain full-screen pass: keep three from substituting the XR camera
