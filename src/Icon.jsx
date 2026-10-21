@@ -5,7 +5,6 @@ import chevronUp from 'lineicons/assets/svgs/regular/chevron-up.svg?raw';
 import check from 'lineicons/assets/svgs/regular/check.svg?raw';
 import gear from 'lineicons/assets/svgs/regular/gear-1.svg?raw';
 import picture from 'lineicons/assets/svgs/regular/gallery.svg?raw';
-import globe from 'lineicons/assets/svgs/regular/globe-1.svg?raw';
 import camera from 'lineicons/assets/svgs/regular/camera-1.svg?raw';
 import flowchart from 'lineicons/assets/svgs/regular/vector-nodes-7.svg?raw';
 import eye from 'lineicons/assets/svgs/regular/eye.svg?raw';
@@ -70,11 +69,6 @@ const video = monitor.replace(
 </svg>`,
 );
 
-// Solid background: a filled rectangle
-const solid = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-<rect x="2.75" y="5" width="18.5" height="14" rx="1.5" fill="currentColor" fill-opacity="0.35" stroke="currentColor" stroke-width="1.5"/>
-</svg>`;
-
 // Mesh: a patch of triangles
 const mesh = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
 <path d="M3 19.5 7.5 5l6 3.5L20.5 4l.5 15.5H3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
@@ -123,8 +117,6 @@ const ICONS = {
   dropdownOpen: recolour(chevronUp),
   check: recolour(check),
   gear: recolour(gear),
-  solid,
-  skybox: recolour(globe),
   passthrough: recolour(picture),
   monitor,
   monitorSbs,

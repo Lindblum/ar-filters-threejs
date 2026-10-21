@@ -12,10 +12,8 @@ import { GazeReticle } from './Gaze.jsx';
 import { PhoneStereoXR } from './PhoneStereo.jsx';
 import { DepthPassthrough } from './DepthPassthrough.jsx';
 import { DepthSource } from './depth/DepthSource.jsx';
-import { SOLID_BACKGROUND } from './menu.js';
 
-// The windowed view looks at the space in front of where the session (or
-// the test feed's camera) started, the origin of the room's coordinates.
+// The windowed view looks at the space in front of where the session started, the origin of the room's coordinates.
 export const ORBIT_TARGET = [0, 1, -1.5];
 // Without VR controllers (hand tracking, phones) the XR panel starts off to
 // the player's left, turned toward them, and travels with the player. Constants, so a re-render never undoes a move.
@@ -92,38 +90,8 @@ function Sky({ passthrough }) {
   return null;
 }
 
-const _eye = new THREE.Vector3();
-
-/**
- * The solid colour as a sphere around the viewer. In an AR session three.js
- * clears to transparent whatever scene.background says (so passthrough shows),
- * so there the colour has to be drawn, like the skybox is.
- */
-function SolidDome() {
-  const dome = useRef(null);
-  useFrame(({ camera }) => dome.current?.position.copy(camera.getWorldPosition(_eye)));
-  return (
-    <mesh ref={dome} renderOrder={-1000} frustumCulled={false} raycast={() => null}>
-      <sphereGeometry args={[100, 16, 8]} />
-      <meshBasicMaterial color={SOLID_BACKGROUND} side={THREE.BackSide} depthTest={false} depthWrite={false} toneMapped={false} />
-    </mesh>
-  );
-}
-
-/** Solid colour or the skybox; passthrough shows the skybox until an AR session hides it. */
+/** The skybox, until an AR session's passthrough hides it. */
 function Backdrop({ background }) {
-  const scene = useThree((s) => s.scene);
-  const inAR = useXR((s) => s.mode === 'immersive-ar');
-  const solid = background === 'solid';
-  useEffect(() => {
-    if (!solid || inAR) return;
-    const color = new THREE.Color(SOLID_BACKGROUND);
-    scene.background = color;
-    return () => {
-      if (scene.background === color) scene.background = null;
-    };
-  }, [solid, inAR, scene]);
-  if (solid) return inAR ? <SolidDome /> : null;
   return (
     // own boundary so a slow or failed sky never holds back the scene
     <AssetBoundary>
@@ -171,11 +139,7 @@ function FloorGrid() {
   return <gridHelper args={[10, 20, '#5a6278', '#3a4052']} raycast={() => null} />;
 }
 
-/**
- * `testFeed`: the desktop test feed's <video> (Background → Test Feed), or
- * null. It stands in for a phone's camera outside XR.
- */
-export default function Scene({ state, menu, phone, testFeed }) {
+export default function Scene({ state, menu, phone }) {
   const inSession = useXR((s) => s.mode === 'immersive-vr' || s.mode === 'immersive-ar');
   const inAR = useXR((s) => s.mode === 'immersive-ar');
   // a phone's AR session drawn as two lens-corrected eyes
@@ -188,8 +152,8 @@ export default function Scene({ state, menu, phone, testFeed }) {
   const immersive = inSession || state.handheld;
   // the motion-sensor view has no AR session: passthrough is the rear camera
   const cameraPassthrough = state.handheld && state.passthrough;
-  // the camera image in the room, true to scale with outfill: the phone's in AR, or the test feed's
-  const cameraInRoom = (phone && inAR && state.passthrough) || Boolean(testFeed);
+  // the phone's camera image in the room, true to scale with outfill
+  const cameraInRoom = phone && inAR && state.passthrough;
   const [cameraFailed, setCameraFailed] = useState(false);
   useEffect(() => setCameraFailed(false), [cameraPassthrough]);
   const origin = useRef(null);
@@ -206,13 +170,13 @@ export default function Scene({ state, menu, phone, testFeed }) {
           }}
         />
       ) : (
-        <Backdrop background={state.background === 'testFeed' ? 'solid' : state.background} />
+        <Backdrop background={state.background} />
       )}
       {state.view === 'sbs' && !immersive && <SideBySide />}
       {state.view === 'interlaced' && !immersive && <Interlaced />}
       {phoneStereo && <PhoneStereoXR strength={state.strength} convergence={state.convergence} zoom={state.zoom} />}
       {!inSession && <FloorGrid />}
-      <DepthSource mode={state.depthMode} smoothing={state.smoothing} video={testFeed} />
+      <DepthSource mode={state.depthMode} smoothing={state.smoothing} />
       <Player origin={origin} menu={menuPanel}>
         {cameraInRoom && <DepthPassthrough surface={state.depthMesh} outfill={state.periphery !== 'black'} />}
         {immersive &&

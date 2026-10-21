@@ -16,6 +16,6 @@ self.onmessage = (e) => {
   const base = { ...msg.base };
   for (const key of MATRICES) base[key] = new THREE.Matrix4().fromArray(base[key]);
   const result = parallax.estimate(msg.image, base);
-  const transfer = [result.depth, result.sigma, result.values].filter(Boolean).map((a) => a.buffer);
+  const transfer = [result.depth, result.sigma].map((a) => a.buffer);
   self.postMessage({ type: 'result', id: msg.id, result }, transfer);
 };

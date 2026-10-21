@@ -10,7 +10,6 @@ import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from
 import { MODELS } from './depth/ml.js';
 import { useDepthStatus } from './depth/store.js';
 import { FILTERS, setFilter } from './filters.js';
-import { useTestFeed } from './testFeed.js';
 import { loadSettings, saveSettings } from './settings.js';
 import {
   DEPTH_MODE_LABELS,
@@ -101,7 +100,7 @@ function useAppState() {
   const [zoom, setZoom] = useState(saved.zoom ?? 0); // the phone viewer's magnification, 0 (actual FoV) .. 1 (fill), see PhoneStereo.jsx
   const [periphery, setPeriphery] = useState(saved.periphery ?? 'outfill'); // the phone viewer beyond the camera: 'black' | 'outfill'
   const [filter, setFilterName] = useState(saved.filter ?? 'none');
-  const [background, setBackground] = useState(saved.background ?? 'passthrough'); // 'solid' | 'skybox' | 'passthrough' | 'testFeed'
+  const [background, setBackground] = useState(saved.background ?? 'passthrough'); // see menu.js BACKGROUNDS
   const [menuOpen, setMenuOpen] = useState(saved.menuOpen ?? true); // shared by the windowed and XR panels
   const [sections, setSections] = useState(saved.sections ?? ['depth', 'video']); // the open sections, see menu.js
   const [dropdown, setDropdown] = useState(null); // the dropdown whose list is open
@@ -315,7 +314,7 @@ function depthLines(depth, active, mode) {
     else lines.push('Depth: none yet');
     return lines;
   }
-  const parts = [`${sourceName(depth.source)}${depth.test ? ' (test feed)' : ''}`];
+  const parts = [sourceName(depth.source)];
   if (depth.rawSize && depth.source.startsWith('arcore')) parts[0] += ` ${depth.rawSize[0]}×${depth.rawSize[1]}`;
   const fromModel = MODELS[depth.source.replace('arcore+', '')];
   if (depth.source !== 'arcore') parts.push(`${fromModel && ml.ms != null ? ml.ms : depth.ms} ms`);
@@ -382,9 +381,6 @@ export default function App() {
   // Phone AR with the DOM overlay granted: the windowed panel, over the view, in place of the scene's
   const domMenu = view === 'phoneAR' && Boolean(session?.domOverlayState);
   const [error, setError] = useState(null);
-  // the desktop's stand-in for a phone camera, outside XR
-  const testFeedAvailable = !phone && !headset;
-  const testFeed = useTestFeed(testFeedAvailable && state.background === 'testFeed' && !inXR);
 
   // into an XR view, straight from the tap
   const enterXR = async (stereo) => {
@@ -480,13 +476,13 @@ export default function App() {
     xrLine,
     features: session?.enabledFeatures,
     depth,
-    depthActive: (sessionActive && sessionMode === 'immersive-ar') || Boolean(testFeed.video),
+    depthActive: sessionActive && sessionMode === 'immersive-ar',
     depthMode: state.depthMode,
   });
-  const env = { xrSupported, passthroughAvailable, testFeedAvailable, checking: !support.checked, phone, views };
+  const env = { xrSupported, passthroughAvailable, checking: !support.checked, phone, views };
   const labels = useMemo(
-    () => possibleLabels({ xrSupported, passthroughAvailable, testFeedAvailable, views }),
-    [xrSupported, passthroughAvailable, testFeedAvailable, views],
+    () => possibleLabels({ xrSupported, passthroughAvailable, views }),
+    [xrSupported, passthroughAvailable, views],
   );
   const menu = {
     title: MENU_TITLE,
@@ -498,13 +494,12 @@ export default function App() {
     onSelect,
   };
   const notes = [
-    !inXR &&
-      !testFeed.video && {
-        text: testFeedAvailable
-          ? 'On an Android phone, open this page in Chrome and choose Video → View Mode → XR: Phone Viewer. Here, Video → Background → Test Feed runs depth on your webcam, or on a video file dropped on the page.'
-          : 'Choose Video → View Mode → XR: Phone Viewer for stereo with depth, or XR: Phone AR for one view.',
-      },
-    testFeed.error && { text: testFeed.error, error: true },
+    !inXR && {
+      text:
+        phone || headset
+          ? 'Choose Video → View Mode → XR: Phone Viewer for stereo with depth, or XR: Phone AR for one view.'
+          : 'On an Android phone, open this page in Chrome and choose Video → View Mode → XR: Phone Viewer.',
+    },
     error && { text: error, error: true },
   ].filter(Boolean);
 
@@ -516,7 +511,6 @@ export default function App() {
             state={{ ...state, view, stereo: phoneStereo, handheld, domMenu, passthrough: state.background === 'passthrough' }}
             menu={menu}
             phone={phone}
-            testFeed={testFeed.video}
           />
         </XR>
       </Canvas>

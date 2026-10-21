@@ -13,10 +13,7 @@ import { cellRays } from './grid.js';
 // The earlier frame is the latest with at least GOOD_BASELINE of camera
 // travel, so depth stays sure without tracking across too much change.
 // Standing still gives no parallax and no depth; smoothing carries the last
-// depth for a few frames. Without camera poses (the desktop test feed) it
-// falls back to WiFi Camera Link's version: relative depth from how far
-// each point moved, over a ground-plane base so a still scene isn't flat.
-// It runs in a worker (ParallaxWorker, below), off the render thread.
+// depth for a few frames. It runs in a worker (ParallaxWorker, below), off the render thread.
 
 const FLOW_LONG = 160; // tracking image's long side, pixels
 const LEVELS = 3; // pyramid levels: 160, 80, 40
@@ -178,11 +175,6 @@ function fillFromStride(sparse, width, height) {
   return out;
 }
 
-function median(values) {
-  const s = Float32Array.from(values).sort();
-  return s.length ? s[s.length >> 1] : 0;
-}
-
 /** World-space direction (not normalized) of view direction (x, y, z) under a camera-to-world matrix. */
 function rotate(e, x, y, z) {
   return [e[0] * x + e[4] * y + e[8] * z, e[1] * x + e[5] * y + e[9] * z, e[2] * x + e[6] * y + e[10] * z];
@@ -196,15 +188,13 @@ export class MotionParallax {
   }
 
   /**
-   * Depth for a captured frame. `base`: the frame's grid and view (see
-   * grid.js), with `posed` true when its pose is real (an XR session).
-   * Returns { depth, sigma, baseline, tracked } (metric) when posed, else
-   * { values } (relative, larger nearer).
+   * Metric depth for a captured frame. `base`: the frame's grid and view
+   * (see grid.js). Returns { depth, sigma, baseline, tracked }.
    */
   estimate(image, base) {
     const pyr = pyramid(greyImage(image.rgba, image.width, image.height));
     const frame = { pyr, ...base };
-    const result = base.posed ? this.triangulate(frame) : this.relative(frame);
+    const result = this.triangulate(frame);
     this.keyframes.push(frame);
     if (this.keyframes.length > KEYFRAMES) this.keyframes.shift();
     return result;
@@ -294,39 +284,6 @@ export class MotionParallax {
         sigma[k] = filledSigma[k];
       }
     return { depth, sigma, baseline, tracked: tried ? tracked / tried : 0 };
-  }
-
-  /** Relative depth from how far points moved since the last frame, beyond the overall pan (no poses). */
-  relative(frame) {
-    const { width, height } = frame;
-    const prev = this.keyframes.at(-1);
-    const img = frame.pyr[0];
-    const ground = (j) => j / (height - 1);
-    const values = new Float32Array(width * height);
-    for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) values[j * width + i] = ground(j);
-    if (!prev || prev.pyr[0].w !== img.w || prev.pyr[0].h !== img.h) return { values };
-    const flows = [];
-    for (let j = 0; j < height; j += STRIDE)
-      for (let i = 0; i < width; i += STRIDE) {
-        const x0 = ((i + 0.5) / width) * img.w - 0.5;
-        const y0 = ((j + 0.5) / height) * img.h - 0.5;
-        const hit = track(frame.pyr, prev.pyr, x0, y0, x0, y0);
-        if (hit) flows.push({ c: j * width + i, fx: hit[0] - x0, fy: hit[1] - y0 });
-      }
-    if (flows.length < 12) return { values };
-    const mx = median(flows.map((f) => f.fx));
-    const my = median(flows.map((f) => f.fy));
-    const motion = flows.map((f) => Math.hypot(f.fx - mx, f.fy - my));
-    // scale by the strong motion in this frame, but never below half a pixel, so a still scene's noise isn't blown up
-    const scale = 1 / Math.max(Float32Array.from(motion).sort()[Math.floor(0.95 * (motion.length - 1))], 0.5);
-    const sparse = new Float32Array(width * height);
-    flows.forEach((f, n) => {
-      sparse[f.c] = Math.min(motion[n] * scale, 1) + 1e-3; // + 1e-3: zero motion is still known
-    });
-    const filled = fillFromStride(sparse, width, height);
-    for (let k = 0; k < values.length; k++)
-      if (filled[k] > 0) values[k] = 0.35 * values[k] + 0.65 * (filled[k] - 1e-3);
-    return { values };
   }
 }
 

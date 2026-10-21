@@ -41,7 +41,7 @@ export const liveCamera = {
 };
 
 /**
- * What the panels show: { source ('arcore' | 'arcore+ml' | 'ml' | 'test' |
+ * What the panels show: { source ('arcore' | 'arcore+ml' | 'ml' |
  * null), arcore ('cpu' | 'gpu' | null: what the session granted), rawSize
  * ([w, h] of ARCore's depth), ml ({ state, provider, ms, progress, error }),
  * fit ({ error (metres), assumed, n } | null), anchors (hit-test points

@@ -23,8 +23,6 @@ import { getDepthStatus, liveCamera, setDepthFrame, setDepthStatus } from './sto
 // The models and the heuristic give relative depth, scaled to metres against
 // ARCore's depth where the phone has it, else hit tests on surfaces, else an
 // assumed range. Ground plane and motion parallax are metric by themselves.
-// On the desktop the test feed's video stands in for the camera, with a
-// fixed pose (so no ARCore, no hit tests, and parallax falls back to flow).
 
 const INTERVAL = 0.1; // seconds between captures, at most
 const ML_TOO_SLOW_MS = 250; // auto mode drops the model above this (after warm-up)
@@ -43,9 +41,6 @@ const EDGE_GAIN = 3; // sigma grows by up to this many times at depth edges
 
 /** The depth model each mode runs, if any: auto sharpens ARCore with Depth Anything V2. */
 const MODEL_OF = { auto: 'da2', da2: 'da2', da3: 'da3', midas: 'midas' };
-
-/** The desktop test feed's camera: eye height, looking straight ahead. */
-export const TEST_CAMERA = { position: [0, 1.3, 0], fov: 60 };
 
 const _v = new THREE.Vector4();
 
@@ -102,11 +97,8 @@ function arcoreOnly(depth, color, width, height) {
 
 const freshRun = () => ({ last: -Infinity, busy: false, fit: null, mlRuns: 0, mlMs: 0, mlSlow: false, smoothed: null });
 
-/**
- * `mode`: see the top of this file. `smoothing`: 0 (off) to 1 (see
- * smooth.js). `video`: the desktop test feed's <video>, or null.
- */
-export function DepthSource({ mode, smoothing = 0.5, video }) {
+/** `mode`: see the top of this file. `smoothing`: 0 (off) to 1 (see smooth.js). */
+export function DepthSource({ mode, smoothing = 0.5 }) {
   const gl = useThree((s) => s.gl);
   const capture = useMemo(() => new CameraCapture(), []);
   useEffect(() => () => capture.dispose(), [capture]);
@@ -115,27 +107,20 @@ export function DepthSource({ mode, smoothing = 0.5, video }) {
   const smoothingRef = useRef(smoothing);
   smoothingRef.current = smoothing;
   const anchors = useRef({ sources: [], points: [], session: null, lastT: -Infinity });
-  const videoTexture = useMemo(() => {
-    if (!video) return null;
-    const t = new THREE.VideoTexture(video);
-    t.colorSpace = THREE.SRGBColorSpace;
-    return t;
-  }, [video]);
-  useEffect(() => () => videoTexture?.dispose(), [videoTexture]);
 
   // a chosen model loads at once, ready for XR; auto's loads once there's a camera to run it on
   const session = useXR((s) => s.session);
   const model = MODEL_OF[mode] ?? null;
   useEffect(() => {
-    if (model && (mode !== 'auto' || session || video)) depthModel.load(model);
-  }, [model, mode, session, video]);
+    if (model && (mode !== 'auto' || session)) depthModel.load(model);
+  }, [model, mode, session]);
   useEffect(() => depthModel.subscribe(() => setDepthStatus({ ...getDepthStatus(), ml: mlStatus(run.current) })), []);
-  // a new mode, session or feed starts over
+  // a new mode or session starts over
   useEffect(() => {
     run.current = freshRun();
     parallax.reset();
     setDepthFrame(null);
-  }, [mode, session, video, parallax]);
+  }, [mode, session, parallax]);
 
   useFrame(({ clock }, _, frame) => {
     const t = clock.elapsedTime;
@@ -143,10 +128,6 @@ export function DepthSource({ mode, smoothing = 0.5, video }) {
     const xrSession = gl.xr.getSession();
     liveCamera.texture = null;
 
-    if (video && !xrSession) {
-      testFeedFrame(t);
-      return;
-    }
     if (!xrSession || !frame) {
       setDepthStatus({ source: null, arcore: null, rawSize: null, ml: mlStatus(state), fit: null, anchors: 0 });
       return;
@@ -182,7 +163,6 @@ export function DepthSource({ mode, smoothing = 0.5, video }) {
     const base = {
       width,
       height,
-      posed: true,
       cameraToWorld: new THREE.Matrix4().fromArray(view.transform.matrix),
       projectionInverse: new THREE.Matrix4().fromArray(proj).invert(),
       worldToCamera: liveCamera.worldToCamera.clone(),
@@ -219,38 +199,6 @@ export function DepthSource({ mode, smoothing = 0.5, video }) {
     return null;
   }
 
-  /** The desktop test feed: the video's frames, from a fixed camera. */
-  function testFeedFrame(t) {
-    const state = run.current;
-    if (!video.videoWidth) return;
-    const aspect = video.videoWidth / video.videoHeight;
-    const projection = new THREE.PerspectiveCamera(TEST_CAMERA.fov, aspect, 0.05, 100).projectionMatrix;
-    const cameraToWorld = new THREE.Matrix4().makeTranslation(...TEST_CAMERA.position);
-    liveCamera.worldToCamera.copy(cameraToWorld).invert();
-    liveCamera.projection.copy(projection);
-    liveCamera.texture = videoTexture;
-    liveCamera.size.set(video.videoWidth, video.videoHeight);
-    if (state.busy || t - state.last < INTERVAL) return;
-    const kind = estimator(false, true);
-    if (!kind) return;
-    state.last = t;
-    state.busy = true;
-    const { width, height } = gridSize(aspect);
-    const base = {
-      width,
-      height,
-      posed: false, // it never moves, so parallax can't triangulate
-      cameraToWorld,
-      projectionInverse: projection.clone().invert(),
-      worldToCamera: cameraToWorld.clone().invert(),
-      projection: projection.clone(),
-    };
-    const image = capture.captureVideo(video, modelInputSize(kind === 'model' ? model : 'da2', aspect));
-    process(image, base, kind, null, { arcore: null, rawSize: null, test: true }).finally(() => {
-      state.busy = false;
-    });
-  }
-
   /** Turns a captured image (and ARCore's grid, if any) into a depth frame with the estimator `kind`. */
   async function process(image, base, kind, arcoreDepth, status) {
     const { width, height } = base;
@@ -277,8 +225,8 @@ export function DepthSource({ mode, smoothing = 0.5, video }) {
       const r = await parallax.estimate(image, base);
       if (!r) return; // reset meanwhile
       ms = performance.now() - t1;
-      estimate = r.values ? { values: r.values, range: valueRange(r.values) } : r;
-      if (!r.values) extra = { parallax: { baseline: Math.round(r.baseline * 100), tracked: Math.round(r.tracked * 100) } };
+      estimate = r;
+      extra = { parallax: { baseline: Math.round(r.baseline * 100), tracked: Math.round(r.tracked * 100) } };
     } else if (kind === 'ground') estimate = groundPlane(base);
     else estimate = arcoreOnly(arcoreDepth, color, width, height);
     ms ??= performance.now() - t0;

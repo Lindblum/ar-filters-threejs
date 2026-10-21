@@ -28,9 +28,8 @@ Each eye then sees the live camera image at its depth, drawn per pixel the way t
   - **Depth Anything V2 / V3, MiDaS**: depth models on the camera image (50 / 105 / 66 MB, downloaded once). Their depth is relative, so it's scaled to metres against ARCore's depth, or hit tests on surfaces, or an assumed range.
   - **Heuristic** (from the 2D-3D add-on): lower, brighter, more saturated and more central reads as nearer. Instant, rough.
   - **Ground Plane**: every ray meets the floor. Metric, but only right for the floor.
-  - **Motion Parallax**: points tracked between camera frames and triangulated with ARCore's known camera movement, like ARCore's own depth. Move the phone a few centimetres sideways. (On the desktop test feed, with no camera movement known, it reads depth from how far points move, as WiFi Camera Link does.) The **Smoothing** slider averages depth over recent frames (0 is off); real changes come through at once.
+  - **Motion Parallax**: points tracked between camera frames and triangulated with ARCore's known camera movement, like ARCore's own depth. Move the phone a few centimetres sideways. The **Smoothing** slider averages depth over recent frames (0 is off); real changes come through at once.
 - **Depth → 2D-3D** turns the camera image into 3D from its depth; off shows it flat, at the scene's typical distance. The **3D Strength** slider scales the eye separation from 0 to 3× (1× is true to scale). **Convergence** sets where the eyes meet, from ∞ (true to life) in to 0.5 m.
-- On a desktop, **Video → Background → Test Feed** runs the depth model on your webcam, or on a video file dropped on the page.
 
 The depth models download from Hugging Face on first use and are cached by the browser.
 
@@ -38,7 +37,7 @@ The depth models download from Hugging Face on first use and are cached by the b
 
 ```sh
 npm install
-npm run dev      # localhost; use the Test Feed background
+npm run dev      # localhost
 npm run dev:xr   # HTTPS on your LAN, for a phone (chrome://inspect for its console)
 npm run build    # dist/; pushes to master deploy it to GitHub Pages
 ```

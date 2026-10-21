@@ -30,7 +30,6 @@ export class CameraCapture {
     this.quad.frustumCulled = false;
     this.scene.add(this.quad);
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    this.canvas = null; // for <video> sources
   }
 
   /**
@@ -51,18 +50,6 @@ export class CameraCapture {
     this.material.uniforms.map.value = null;
     const rgba = new Uint8Array(width * height * 4);
     return gl.readRenderTargetPixelsAsync(this.target, 0, 0, width, height, rgba).then(() => ({ rgba, width, height }));
-  }
-
-  /** The same from a playing <video> (the desktop test feed), synchronously. */
-  captureVideo(video, { width, height }) {
-    if (!this.canvas) this.canvas = new OffscreenCanvas(width, height);
-    if (this.canvas.width !== width || this.canvas.height !== height) {
-      this.canvas.width = width;
-      this.canvas.height = height;
-    }
-    const ctx = this.canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(video, 0, 0, width, height);
-    return { rgba: new Uint8Array(ctx.getImageData(0, 0, width, height).data.buffer), width, height };
   }
 
   dispose() {

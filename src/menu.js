@@ -9,19 +9,10 @@ import { FILTERS, FILTER_LABELS } from './filters.js';
 
 export const MENU_TITLE = 'AR Filters';
 
-/** Video → Background, in list order (passthrough, then the desktop's test feed, last). */
-export const BACKGROUNDS = ['solid', 'skybox', 'passthrough', 'testFeed'];
-const BACKGROUND_LABELS = {
-  solid: 'Solid',
-  skybox: 'Skybox',
-  passthrough: 'Passthrough (XR Only)',
-  testFeed: 'Test Feed (Webcam)',
-};
-const BACKGROUND_ICONS = { solid: 'solid', skybox: 'skybox', passthrough: 'passthrough', testFeed: 'camera' };
-
-/** The Vite + React starter's page colour, used for the Solid background, as in the 4D viewer. */
-export const SOLID_BACKGROUND = '#242424';
-
+/** Video → Background, in list order. */
+export const BACKGROUNDS = ['passthrough'];
+const BACKGROUND_LABELS = { passthrough: 'Passthrough (XR Only)' };
+const BACKGROUND_ICONS = { passthrough: 'passthrough' };
 
 /**
  * View Mode, in list order. Normal, 3D: SBS (half side-by-side, for 3D
@@ -68,13 +59,11 @@ export function availableViews(env) {
 /**
  * Why this device can't use a Background or View Mode choice, or null if it
  * can. Unavailable choices still show in their lists, disabled, with this
- * as their tooltip. Passthrough needs AR; the test feed is desktop only (it
- * stands in for a phone's camera); views as availableViews.
+ * as their tooltip. Passthrough needs AR; views as availableViews.
  */
 export function unavailableReason(env, dropdownId, choice) {
   if (dropdownId === 'background') {
     if (choice === 'passthrough' && !env.passthroughAvailable) return 'Needs an AR-capable headset or a phone camera';
-    if (choice === 'testFeed' && !env.testFeedAvailable) return 'Desktop only: it stands in for a phone camera';
     return null;
   }
   if (dropdownId !== 'view' || (env.views ?? ['normal']).includes(choice)) return null;
@@ -259,7 +248,7 @@ function videoItems(state, env) {
       id: 'filter',
       label: `Filter: ${FILTER_LABELS[state.filter]}`,
       icon: 'filter',
-      title: 'Depth Colours needs depth: the depth passthrough, in XR or on the test feed',
+      title: 'Depth Colours needs depth: the depth passthrough, in XR',
       dropdown: dropdown(state, 'filter', FILTERS.map((f) => FILTER_LABELS[f]), FILTERS.indexOf(state.filter)),
     },
     {
@@ -319,8 +308,8 @@ const SECTION_ICONS = { depth: 'layers', video: 'video' };
  * right; when open (in `state.sections`), its settings follow it with
  * `indent: true`. `dropdown`: { open, options: [{ id, label, selected }] },
  * drawn with a chevron at the far right and, when open, its options
- * beneath. `env`: { xrSupported, passthroughAvailable, testFeedAvailable,
- * checking, phone, views (available) }.
+ * beneath. `env`: { xrSupported, passthroughAvailable, checking, phone,
+ * views (available) }.
  */
 export function menuItems(state, env) {
   const items = [];
@@ -341,7 +330,7 @@ const SAMPLE_STATE = {
   zoom: 0,
   periphery: PERIPHERIES[1],
   filter: FILTERS[0],
-  background: 'solid',
+  background: BACKGROUNDS[0],
   view: 'normal',
   sections: SECTIONS,
 };

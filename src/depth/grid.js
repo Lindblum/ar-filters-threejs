@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-// Every depth source (ARCore, the ML model, the desktop test feed) ends up
+// Every depth source (ARCore, the ML models, the heuristics, motion parallax) ends up
 // as a DepthFrame on one regular grid over the camera view that took it:
 //
 //   { source, width, height, depth, sigma, color, cameraToWorld,
