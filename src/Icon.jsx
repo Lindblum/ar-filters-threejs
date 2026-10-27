@@ -97,6 +97,42 @@ const points = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="no
 <circle cx="15" cy="17.5" r="1.6" fill="currentColor" fill-opacity="0.5"/>
 </svg>`;
 
+// Accessibility, as in grid-game-threejs: a figure with open arms in a circle
+const accessibility = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<circle cx="12" cy="12" r="9.6" stroke="currentColor" stroke-width="1.5"/>
+<circle cx="12" cy="6.5" r="1.5" fill="currentColor"/>
+<path d="M6.25 9.6h11.5M12 9.6v4.3M9.1 18.7l2.9-4.8 2.9 4.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`;
+
+// Text Size: a small and a large "A"
+const textSize = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<path d="M2.9 18.7 6.25 10.1l3.35 8.6M4.3 15.4h3.9M11 19.2 16.1 4.8l5.05 14.4M13 13.9h6.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`;
+
+// Vibration: a controller's handle with buzz lines either side, or still and struck through
+const handle = `<rect x="9.1" y="4.3" width="5.8" height="15.4" rx="1.5" stroke="currentColor" stroke-width="1.5"/>`;
+const vibrationOn = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+${handle}
+<path d="m5.75 7.7-1.45 2.4 1.45 2.4-1.45 2.4M18.25 7.7l1.45 2.4-1.45 2.4 1.45 2.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`;
+const vibrationOff = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+${handle}
+<path d="M4.3 20.2 19.7 3.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`;
+
+// Controller Guide: a controller's handle with a button and a label tag pointing at it, or struck through
+const guideHandle = `<rect x="3.35" y="7.2" width="6.7" height="13.9" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+<circle cx="6.7" cy="10.6" r="1.45" fill="currentColor"/>`;
+const controllerGuideOn = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+${guideHandle}
+<path d="M8.4 10.6 13.4 7.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+<rect x="13.4" y="4.3" width="8.2" height="5.8" rx="1.25" stroke="currentColor" stroke-width="1.5"/>
+</svg>`;
+const controllerGuideOff = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+${guideHandle}
+<path d="M12 20.6 21.6 3.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`;
+
 const ICONS = {
   layers: recolour(layers),
   camera: recolour(camera),
@@ -112,6 +148,12 @@ const ICONS = {
   download: recolour(download),
   clear: recolour(trash),
   video,
+  accessibility,
+  textSize,
+  vibrationOn,
+  vibrationOff,
+  controllerGuideOn,
+  controllerGuideOff,
   // a section or dropdown, closed and open, and the chosen option in its list
   dropdown: recolour(chevronDown),
   dropdownOpen: recolour(chevronUp),

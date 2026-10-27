@@ -1,5 +1,6 @@
-// Options menu model shared by the windowed panel (DOM) and the XR panel
-// (drawn on a canvas): one list of buttons, each "Name: Value". A button
+// The panels' model (panelModels), shared by the windowed template (DOM)
+// and the XR template (drawn on a canvas). Options is one list of buttons,
+// each "Name: Value". A button
 // toggles or cycles its setting, runs an action, opens a section (its
 // settings indented beneath it), or opens a dropdown list of choices
 // beneath it. Sections and dropdowns show a chevron on the right. A slider
@@ -88,7 +89,7 @@ export function splitLabel(label) {
 }
 
 /** Sections: each button opens or closes its settings, indented beneath it. */
-export const SECTIONS = ['depth', 'video'];
+export const SECTIONS = ['depth', 'video', 'accessibility'];
 export const SECTION_PREFIX = 'section:';
 
 export const PICK_PREFIX = 'pick:';
@@ -172,14 +173,29 @@ const zoomLabel = (z) => (z <= 0 ? 'Actual FoV' : z >= 1 ? 'Fill' : `${Math.roun
 export const PERIPHERIES = ['black', 'outfill'];
 const PERIPHERY_LABELS = { black: 'Black', outfill: 'Outfill' };
 
+/**
+ * Accessibility → Text Size: the panels' text and icons, a multiplier (the
+ * windowed panel's through styles.css --text-scale; the XR panel, and the
+ * Controller Guide's labels, drawn that much bigger).
+ */
+export const TEXT_SIZE = { min: 0.75, max: 2, step: 0.25 };
+const textSizeLabel = (t) => `${Math.round(t * 100)}%`;
+
+/**
+ * Accessibility → Vibration: the controllers' haptics, 0 (off) to 2 (1 as
+ * made; above, every buzz stronger, up to the controller's most). See haptics.js.
+ */
+export const VIBRATION = { min: 0, max: 2, step: 0.1 };
+const vibrationLabel = (v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off');
+
 /** The dropdowns' ids. */
 export const DROPDOWNS = ['depthMode', 'filter', 'periphery', 'background', 'view'];
 
 /** The on / off settings, by button id. */
-export const TOGGLES = ['depthMesh'];
+export const TOGGLES = ['depthMesh', 'controllerGuide'];
 
 /** The sliders' ids. */
-export const SLIDERS = ['convergence', 'smoothing', 'strength', 'zoom'];
+export const SLIDERS = ['convergence', 'smoothing', 'strength', 'zoom', 'textSize', 'vibration'];
 
 /** One-shot actions, by button id. */
 export const ACTIONS = [];
@@ -295,9 +311,35 @@ function videoItems(state, env) {
   ];
 }
 
-const SECTION_ITEMS = { depth: depthItems, video: videoItems };
-const SECTION_LABELS = { depth: 'Depth', video: 'Video' };
-const SECTION_ICONS = { depth: 'layers', video: 'video' };
+/** Accessibility: the panels' Text Size, the controllers' Vibration, and the XR Controller Guide. */
+function accessibilityItems(state) {
+  return [
+    {
+      id: 'textSize',
+      label: `Text Size: ${textSizeLabel(state.textSize)}`,
+      icon: 'textSize',
+      title: "The panels' text and icons, and the Controller Guide's labels",
+      slider: { ...TEXT_SIZE, value: state.textSize },
+    },
+    {
+      id: 'vibration',
+      label: `Vibration: ${vibrationLabel(state.vibration)}`,
+      icon: state.vibration > 0 ? 'vibrationOn' : 'vibrationOff',
+      title: "The XR controllers' buzz as you press the panel or grab it: 100% as made, more makes every buzz stronger",
+      slider: { ...VIBRATION, value: state.vibration },
+    },
+    {
+      id: 'controllerGuide',
+      label: `Controller Guide: ${onOff(state.controllerGuide)}`,
+      icon: state.controllerGuide ? 'controllerGuideOn' : 'controllerGuideOff',
+      title: "In XR, a label beside each of the controllers' buttons and sticks saying what it does",
+    },
+  ];
+}
+
+const SECTION_ITEMS = { depth: depthItems, video: videoItems, accessibility: accessibilityItems };
+const SECTION_LABELS = { depth: 'Depth', video: 'Video', accessibility: 'Accessibility' };
+const SECTION_ICONS = { depth: 'layers', video: 'video', accessibility: 'accessibility' };
 
 /**
  * The buttons. Items: { id, label ("Name: Value", see splitLabel), icon,
@@ -321,6 +363,54 @@ export function menuItems(state, env) {
   return items;
 }
 
+/** Each panel's toggle button: Options' gear opens and closes it; the View panel's switches the view. */
+export const MENU_TOGGLE = 'menu:toggle';
+export const VIEW_TOGGLE = 'view:toggle';
+
+/**
+ * The XR view the View panel's button enters: on phones XR: Phone Viewer,
+ * elsewhere XR: Headset; null where it can't be used.
+ */
+export function viewPanelTarget(env) {
+  const view = env.phone ? 'phoneViewer' : 'xr';
+  return (env.views ?? []).includes(view) ? view : null;
+}
+
+/**
+ * The panels, top to bottom, drawn by both templates: the windowed one (App's
+ * Panel, in a column at the top left) and the XR one (XRMenuPanel, docked or
+ * free: see XRPanels). Each: { key, toggle: { id, icon, label }, open, title,
+ * status, items, labels, rows }. Options: the gear, the title, `status` lines
+ * and the buttons (menuItems). View, as in grid-game-threejs: one button,
+ * always collapsed, switching between the Normal view (the monitor, shown in
+ * XR) and the XR view it shows (viewPanelTarget); not there when this device
+ * has no XR view. `labels`: possibleLabels, for the panels' widths.
+ */
+export function panelModels(state, env, { status, labels, inXR }) {
+  const panels = [
+    {
+      key: 'options',
+      toggle: { id: MENU_TOGGLE, icon: 'gear', label: state.menuOpen ? 'Hide options' : 'Options' },
+      open: state.menuOpen,
+      title: MENU_TITLE,
+      status,
+      items: menuItems(state, env),
+      labels,
+      rows: MENU_ROWS,
+    },
+  ];
+  const target = viewPanelTarget(env);
+  if (inXR || target) {
+    panels.push({
+      key: 'view',
+      toggle: inXR ? { id: VIEW_TOGGLE, icon: 'monitor', label: 'Normal view' } : { id: VIEW_TOGGLE, icon: VIEW_ICONS[target], label: VIEW_LABELS[target] },
+      open: false,
+      items: [],
+    });
+  }
+  return panels;
+}
+
 /** The most buttons the menu can show (every section open), so the XR panel can keep its top edge still as sections open and close. */
 const SAMPLE_STATE = {
   depthMode: DEPTH_MODES[0],
@@ -332,6 +422,8 @@ const SAMPLE_STATE = {
   filter: FILTERS[0],
   background: BACKGROUNDS[0],
   view: 'normal',
+  textSize: 1,
+  vibration: 1,
   sections: SECTIONS,
 };
 export const MENU_ROWS = menuItems(SAMPLE_STATE, {}).length;
@@ -354,7 +446,10 @@ export function possibleLabels(env) {
     ...FILTERS.map((filter) => ({ filter })),
     ...BACKGROUNDS.map((background) => ({ background })),
     ...VIEWS.map((view) => ({ view })),
+    ...sliderValues(TEXT_SIZE).map((textSize) => ({ textSize })),
+    ...sliderValues(VIBRATION).map((vibration) => ({ vibration })),
     { depthMesh: false },
+    { controllerGuide: true },
   ];
   for (const v of variants) for (const item of menuItems({ ...base, ...v }, env)) labels.add(item.label);
   return [...labels];

@@ -5,7 +5,7 @@
 // to the default, never put the menu in a state it can't show.
 
 import { FILTERS } from './filters.js';
-import { BACKGROUNDS, CONVERGENCE, DEPTH_MODES, PERIPHERIES, SECTIONS, SMOOTHING, STRENGTH, ZOOM } from './menu.js';
+import { BACKGROUNDS, CONVERGENCE, DEPTH_MODES, PERIPHERIES, SECTIONS, SMOOTHING, STRENGTH, TEXT_SIZE, VIBRATION, ZOOM } from './menu.js';
 
 const COOKIE = 'ar-filters-settings';
 const MAX_AGE = 60 * 60 * 24 * 365; // seconds: a year
@@ -24,6 +24,9 @@ const VALID = {
   periphery: oneOf(PERIPHERIES),
   filter: oneOf(FILTERS),
   background: oneOf(BACKGROUNDS),
+  textSize: inRange(TEXT_SIZE),
+  vibration: inRange(VIBRATION),
+  controllerGuide: (v) => typeof v === 'boolean',
   menuOpen: (v) => typeof v === 'boolean',
   sections: (v) => Array.isArray(v) && v.every((s) => SECTIONS.includes(s)),
 };

@@ -3,8 +3,8 @@ import { useFrame, useLoader, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { IfInSessionMode, XROrigin, useXR, useXRControllerLocomotion } from '@react-three/xr';
 import * as THREE from 'three';
-import { useControllerGrips } from './Grab.jsx';
-import { XRMenuPanel } from './XRMenuPanel.jsx';
+import { XRPanels } from './XRPanels.jsx';
+import { holding } from './grip.js';
 import { SideBySide } from './SideBySide.jsx';
 import { Interlaced } from './Interlaced.jsx';
 import { CameraBackground, CardboardRig } from './Cardboard.jsx';
@@ -12,47 +12,10 @@ import { GazeReticle } from './Gaze.jsx';
 import { PhoneStereoXR } from './PhoneStereo.jsx';
 import { DepthPassthrough } from './DepthPassthrough.jsx';
 import { DepthSource } from './depth/DepthSource.jsx';
+import { ControllerGuide } from './ControllerGuide.jsx';
 
 // The windowed view looks at the space in front of where the session started, the origin of the room's coordinates.
 export const ORBIT_TARGET = [0, 1, -1.5];
-// Without VR controllers (hand tracking, phones) the XR panel starts off to
-// the player's left, turned toward them, and travels with the player. Constants, so a re-render never undoes a move.
-const MENU_POSITION = [-0.65, 1.05, -0.2];
-const MENU_ROTATION = [0, 0.9, 0];
-// a phone's stereo view is blurrier and smaller than a headset's: a bigger panel stays readable
-const PHONE_STEREO_MENU_SCALE = 1.5;
-// With VR controllers the panel rides on the left one, like a palette held in
-// that hand: above the controller, tilted back toward the face, half size.
-// The right controller's ray presses the panel's buttons. In grip space, -Z points forward out of the controller and +Y up
-// out of its top.
-const DOCK_POSITION = [0, 0.17, -0.02];
-const DOCK_ROTATION = [-0.35, 0, 0];
-const DOCK_SCALE = 0.5;
-
-/**
- * Follows the left controller's grip each frame. A child of the XROrigin, so
- * the grip pose (relative to the session's reference space) applies as is.
- * Hidden while the controller isn't tracked.
- */
-function LeftControllerDock({ children }) {
-  const gl = useThree((s) => s.gl);
-  const dock = useRef(null);
-  useFrame((_, __, frame) => {
-    const group = dock.current;
-    if (!group) return;
-    const referenceSpace = gl.xr.getReferenceSpace();
-    const source = frame && [...frame.session.inputSources].find((s) => s.handedness === 'left' && s.gripSpace && !s.hand);
-    const pose = source && referenceSpace && frame.getPose(source.gripSpace, referenceSpace);
-    group.visible = Boolean(pose);
-    if (pose) group.matrix.fromArray(pose.transform.matrix);
-  });
-  return (
-    <group ref={dock} matrixAutoUpdate={false}>
-      {children}
-    </group>
-  );
-}
-
 const SKY_URL = `${import.meta.env.BASE_URL}img/skybox.jpg`;
 
 /** Renders `fallback` if a child throws, e.g. a texture that failed to download. */
@@ -105,17 +68,18 @@ function Backdrop({ background }) {
 const _head = new THREE.Vector3();
 
 /**
- * Left thumbstick moves, right thumbstick turns smoothly about the head.
- * A grip on the panel carries it. The depth passthrough and the panel are
- * children of the player's origin, so they stay on the real room however
- * the player moves.
+ * Left thumbstick moves, right thumbstick turns smoothly about the head; a
+ * hand holding a panel pushes and turns that instead (see XRPanels). The
+ * depth passthrough and the panels are children of the player's origin, so
+ * they stay on the real room however the player moves.
  */
-function Player({ origin, menu, children }) {
+function Player({ origin, children }) {
   useXRControllerLocomotion(
     (velocity, turn, delta, state) => {
       const o = origin.current;
       if (!o) return;
-      o.position.addScaledVector(velocity, delta);
+      if (holding.right) turn = 0;
+      if (!holding.left) o.position.addScaledVector(velocity, delta);
       if (!turn) return;
       // swing the origin around the head so turning doesn't move the viewer
       state.camera.getWorldPosition(_head);
@@ -130,7 +94,6 @@ function Player({ origin, menu, children }) {
     { speed: 1.5 },
     { type: 'smooth', speed: 1.5 },
   );
-  useControllerGrips({ menu, origin });
   return <XROrigin ref={origin}>{children}</XROrigin>;
 }
 
@@ -139,16 +102,13 @@ function FloorGrid() {
   return <gridHelper args={[10, 20, '#5a6278', '#3a4052']} raycast={() => null} />;
 }
 
-export default function Scene({ state, menu, phone }) {
+export default function Scene({ state, panels, onSelect, phone }) {
   const inSession = useXR((s) => s.mode === 'immersive-vr' || s.mode === 'immersive-ar');
   const inAR = useXR((s) => s.mode === 'immersive-ar');
   // a phone's AR session drawn as two lens-corrected eyes
   const phoneStereo = phone && inAR && state.stereo;
   // a phone has no controllers: a 1-second stare clicks the panel
   const hasControllers = useXR((s) => s.inputSourceStates.some((input) => input.type === 'controller'));
-  const docked = useXR((s) =>
-    s.inputSourceStates.some((input) => input.type === 'controller' && input.inputSource.handedness === 'left'),
-  );
   const immersive = inSession || state.handheld;
   // the motion-sensor view has no AR session: passthrough is the rear camera
   const cameraPassthrough = state.handheld && state.passthrough;
@@ -157,7 +117,6 @@ export default function Scene({ state, menu, phone }) {
   const [cameraFailed, setCameraFailed] = useState(false);
   useEffect(() => setCameraFailed(false), [cameraPassthrough]);
   const origin = useRef(null);
-  const menuPanel = useRef(null);
 
   return (
     <>
@@ -177,26 +136,14 @@ export default function Scene({ state, menu, phone }) {
       {phoneStereo && <PhoneStereoXR strength={state.strength} convergence={state.convergence} zoom={state.zoom} />}
       {!inSession && <FloorGrid />}
       <DepthSource mode={state.depthMode} smoothing={state.smoothing} />
-      <Player origin={origin} menu={menuPanel}>
+      <Player origin={origin}>
         {cameraInRoom && <DepthPassthrough surface={state.depthMesh} outfill={state.periphery !== 'black'} />}
-        {immersive &&
-          !state.domMenu &&
-          (docked && inSession ? (
-            // no groupRef: a docked panel can't be carried off by a grip
-            <LeftControllerDock>
-              <XRMenuPanel {...menu} position={DOCK_POSITION} rotation={DOCK_ROTATION} scale={DOCK_SCALE} />
-            </LeftControllerDock>
-          ) : (
-            <XRMenuPanel
-              {...menu}
-              groupRef={menuPanel}
-              position={MENU_POSITION}
-              rotation={MENU_ROTATION}
-              scale={phone && state.stereo ? PHONE_STEREO_MENU_SCALE : 1}
-            />
-          ))}
+        {immersive && !state.domMenu && (
+          <XRPanels panels={panels} onSelect={onSelect} textScale={state.textSize} phoneStereo={phone && state.stereo} />
+        )}
       </Player>
       {immersive && !hasControllers && !state.domMenu && <GazeReticle />}
+      {inSession && <ControllerGuide on={state.controllerGuide} textScale={state.textSize} />}
       {state.handheld ? (
         <CardboardRig split={state.stereo} />
       ) : (

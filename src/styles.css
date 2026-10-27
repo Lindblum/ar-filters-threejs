@@ -4,6 +4,7 @@
   --border: rgba(255, 255, 255, 0.14);
   --text: #e8ecf6;
   --muted: #9aa3b8;
+  --text-scale: 1; /* Accessibility → Text Size (set by App): the panel's text, and its icons with it (1.25em) */
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -24,30 +25,39 @@ canvas { display: block; touch-action: none; }
 .overlay-root:xr-overlay { background: transparent; pointer-events: none; }
 .overlay-root:xr-overlay .hud { pointer-events: auto; }
 
-.hud {
+/* the windowed panels (Options, View), top to bottom at the top left, as the XR ones dock */
+.hud-stack {
   position: fixed;
   top: max(12px, env(safe-area-inset-top));
   left: max(12px, env(safe-area-inset-left));
-  width: max-content; /* as wide as the widest possible button (see .menu-sizer) */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
   max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 2 * max(12px, env(safe-area-inset-top)));
+}
+.hud {
+  width: max-content; /* as wide as the widest possible button (see .menu-sizer) */
+  max-width: 100%;
   padding: 14px 16px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 14px;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   user-select: none;
 }
 
 .hud header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.hud h1 { flex: 1; margin: 0; font-size: 16px; font-weight: 650; letter-spacing: 0.02em; }
-.hud .collapse { display: grid; place-items: center; width: 30px; height: 28px; padding: 0; }
+.hud h1 { flex: 1; margin: 0; font-size: calc(16px * var(--text-scale)); font-weight: 650; letter-spacing: 0.02em; }
+.hud .collapse { display: grid; place-items: center; width: calc(30px * var(--text-scale)); height: calc(28px * var(--text-scale)); padding: 0; }
 /* collapsed: just the frame around the gear button */
 .hud.collapsed header { margin-bottom: 0; }
 
 .stats + .stats { margin-top: -6px; }
-.stats { margin: 0 0 10px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.stats { margin: 0 0 10px; color: var(--muted); font-size: calc(12.5px * var(--text-scale)); font-variant-numeric: tabular-nums; }
 
 button {
   font: inherit;
@@ -74,13 +84,13 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   align-items: center;
   gap: 14px;
   width: 100%;
-  min-height: 34px;
+  min-height: calc(34px * var(--text-scale));
   padding: 4px 10px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.09);
   border-color: rgba(255, 255, 255, 0.14);
   text-align: left;
-  font-size: 14.5px;
+  font-size: calc(14.5px * var(--text-scale));
 }
 /* a slider: icon, name, track, value */
 .menu-slider { cursor: default; }
@@ -97,7 +107,7 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .icon { display: inline-flex; flex: none; align-items: center; line-height: 0; }
 .icon svg { display: block; }
 
-.note { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.note { margin: 8px 0 0; color: var(--muted); font-size: calc(12px * var(--text-scale)); line-height: 1.45; }
 
 .note.error { color: #ff9b8a; }
 
@@ -119,12 +129,12 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   top: max(10px, env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
-  width: 40px;
-  height: 40px;
+  width: calc(40px * var(--text-scale));
+  height: calc(40px * var(--text-scale));
   padding: 0;
   border-radius: 50%;
   background: rgba(10, 14, 28, 0.6);
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale));
 }
 
 /* notes wrap to the buttons' width rather than widening the panel */
@@ -143,25 +153,26 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   align-items: center;
   gap: 6px;
   min-width: 0;
-  min-height: 30px;
+  min-height: calc(30px * var(--text-scale));
   padding: 3px 10px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.1);
   text-align: left;
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--text-scale));
 }
 .menu-option:hover:not(:disabled) { background: rgba(255, 255, 255, 0.18); border-color: rgba(255, 255, 255, 0.4); }
 .menu-option.selected { background: rgba(255, 255, 255, 0.16); border-color: rgba(255, 255, 255, 0.45); }
 .menu-option:disabled { opacity: 0.4; cursor: default; }
 .menu-option .option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* the panel never runs off the screen: its header stays, the buttons scroll */
+/* a panel never runs off the screen: its header stays, the buttons scroll */
 .hud {
   display: flex;
   flex-direction: column;
-  max-height: calc(100dvh - 2 * max(12px, env(safe-area-inset-top)));
+  min-height: 0;
 }
+.hud.collapsed { flex: none; }
 .hud header { flex: none; }
 .hud-body {
   min-height: 0;

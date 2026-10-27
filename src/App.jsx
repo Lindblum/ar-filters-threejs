@@ -4,27 +4,28 @@ import { XR, createXRStore, useXRSessionModeSupported } from '@react-three/xr';
 import Scene from './Scene.jsx';
 import { sideBySideEvents } from './SideBySide.jsx';
 import Icon from './Icon.jsx';
-import { MENU_TOGGLE } from './XRMenuPanel.jsx';
 import { PHONE_AR_SESSION_INIT } from './PhoneStereo.jsx';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
 import { MODELS } from './depth/ml.js';
 import { useDepthStatus } from './depth/store.js';
 import { FILTERS, setFilter } from './filters.js';
 import { loadSettings, saveSettings } from './settings.js';
+import { pulseAll, setVibration as setHapticStrength } from './haptics.js';
 import {
   DEPTH_MODE_LABELS,
   DROPDOWNS,
   TOGGLES,
   XR_VIEWS,
-  MENU_ROWS,
+  MENU_TOGGLE,
+  VIEW_TOGGLE,
   availableViews,
   SECTION_PREFIX,
   SET_PREFIX,
   SLIDERS,
   PICK_PREFIX,
   cycle,
-  menuItems,
-  MENU_TITLE,
+  panelModels,
+  viewPanelTarget,
   dropdownChoices,
   possibleLabels,
   unavailableReason,
@@ -101,13 +102,16 @@ function useAppState() {
   const [periphery, setPeriphery] = useState(saved.periphery ?? 'outfill'); // the phone viewer beyond the camera: 'black' | 'outfill'
   const [filter, setFilterName] = useState(saved.filter ?? 'none');
   const [background, setBackground] = useState(saved.background ?? 'passthrough'); // see menu.js BACKGROUNDS
+  const [textSize, setTextSize] = useState(saved.textSize ?? 1); // the panels' text and icons, a multiplier
+  const [vibration, setVibration] = useState(saved.vibration ?? 1); // the controllers' haptics, 0 (off) to 2, see haptics.js
+  const [controllerGuide, setControllerGuide] = useState(saved.controllerGuide ?? false); // XR labels beside the controllers' buttons
   const [menuOpen, setMenuOpen] = useState(saved.menuOpen ?? true); // shared by the windowed and XR panels
   const [sections, setSections] = useState(saved.sections ?? ['depth', 'video']); // the open sections, see menu.js
   const [dropdown, setDropdown] = useState(null); // the dropdown whose list is open
 
   const actions = useMemo(
     () => ({
-      toggle: (id) => ({ depthMesh: setDepthMesh })[id]((v) => !v),
+      toggle: (id) => ({ depthMesh: setDepthMesh, controllerGuide: setControllerGuide })[id]((v) => !v),
       nextFilter: (step = 1) => setFilterName((f) => cycle(FILTERS, f, step)),
       toggleMenu: () => setMenuOpen((v) => !v),
       toggleSection: (id) => {
@@ -117,7 +121,15 @@ function useAppState() {
       toggleDropdown: (id) => setDropdown((d) => (d === id ? null : id)),
       closeDropdown: () => setDropdown(null),
       /** A slider's new value. */
-      set: (id, value) => ({ strength: setStrength, convergence: setConvergence, smoothing: setSmoothing, zoom: setZoom })[id](value),
+      set: (id, value) =>
+        ({
+          strength: setStrength,
+          convergence: setConvergence,
+          smoothing: setSmoothing,
+          zoom: setZoom,
+          textSize: setTextSize,
+          vibration: setVibration,
+        })[id](value),
       /** A choice from a dropdown's list (see dropdownChoices), which then closes. */
       pick: (id, choice) => {
         ({ depthMode: setDepthMode, periphery: setPeriphery, filter: setFilterName, background: setBackground })[id](choice);
@@ -126,8 +138,30 @@ function useAppState() {
     }),
     [],
   );
-  const state = { depthMode, smoothing, convergence, depthMesh, strength, zoom, periphery, filter, background, menuOpen, sections, dropdown };
-  useEffect(() => saveSettings(state), [depthMode, smoothing, convergence, depthMesh, strength, zoom, periphery, filter, background, menuOpen, sections]);
+  const state = {
+    depthMode,
+    smoothing,
+    convergence,
+    depthMesh,
+    strength,
+    zoom,
+    periphery,
+    filter,
+    background,
+    textSize,
+    vibration,
+    controllerGuide,
+    menuOpen,
+    sections,
+    dropdown,
+  };
+  useEffect(
+    () => saveSettings(state),
+    [depthMode, smoothing, convergence, depthMesh, strength, zoom, periphery, filter, background, textSize, vibration, controllerGuide, menuOpen, sections],
+  );
+  // the windowed panel's text and icons (styles.css), and every pulse's strength
+  useEffect(() => document.documentElement.style.setProperty('--text-scale', String(textSize)), [textSize]);
+  useEffect(() => setHapticStrength(vibration), [vibration]);
   return [state, actions];
 }
 
@@ -254,36 +288,40 @@ function MenuButtons({ items, labels, onSelect }) {
   );
 }
 
-/** The windowed panel: draws the shared menu model (see XRMenuPanel for XR). */
-function Hud({ menu, notes }) {
-  const toggle = () => menu.onSelect(MENU_TOGGLE);
-  const gear = (
-    <button className="collapse" onClick={toggle} aria-label={menu.open ? 'Hide options' : 'Show options'} title="Options">
-      <Icon name="gear" />
+/**
+ * The windowed template for every panel (see menu.js panelModels; XRMenuPanel
+ * is the XR one): its toggle button, and when open its title, status lines,
+ * buttons and any `notes` (windowed only). Collapsed, just the frame around
+ * the toggle button.
+ */
+function Panel({ panel, notes = [], onSelect }) {
+  const { toggle } = panel;
+  const button = (
+    <button className="collapse" onClick={() => onSelect(toggle.id)} aria-label={toggle.label} title={toggle.label}>
+      <Icon name={toggle.icon} />
     </button>
   );
-  if (!menu.open) {
-    // collapsed: just the frame around the gear button
+  if (!panel.open) {
     return (
       <aside className="hud collapsed">
-        <header>{gear}</header>
+        <header>{button}</header>
       </aside>
     );
   }
   return (
     <aside className="hud">
       <header>
-        {gear}
-        <h1>{menu.title}</h1>
+        {button}
+        <h1>{panel.title}</h1>
       </header>
 
       <div className="hud-body">
-        {menu.status.map((line) => (
+        {panel.status.map((line) => (
           <p key={line} className="stats">
             {line}
           </p>
         ))}
-        <MenuButtons items={menu.items} labels={menu.labels} onSelect={menu.onSelect} />
+        <MenuButtons items={panel.items} labels={panel.labels} onSelect={onSelect} />
         {notes.map(({ text, error }) => (
           <p key={text} className={error ? 'note error' : 'note'} role={error ? 'alert' : undefined}>
             {text}
@@ -291,6 +329,17 @@ function Hud({ menu, notes }) {
         ))}
       </div>
     </aside>
+  );
+}
+
+/** The windowed panels, top to bottom at the top left; Options carries the notes. */
+function Hud({ panels, notes, onSelect }) {
+  return (
+    <div className="hud-stack">
+      {panels.map((panel) => (
+        <Panel key={panel.key} panel={panel} notes={panel.key === 'options' ? notes : undefined} onSelect={onSelect} />
+      ))}
+    </div>
   );
 }
 
@@ -437,6 +486,10 @@ export default function App() {
 
   const onSelect = (id) => {
     if (id === MENU_TOGGLE) actions.toggleMenu();
+    else if (id === VIEW_TOGGLE) {
+      const next = inXR ? 'normal' : viewPanelTarget(env);
+      if (next) selectView(next);
+    }
     else if (id.startsWith(SECTION_PREFIX)) actions.toggleSection(id.slice(SECTION_PREFIX.length));
     else if (id.startsWith(PICK_PREFIX)) {
       const [dropdownId, index] = id.slice(PICK_PREFIX.length).split(':');
@@ -448,7 +501,13 @@ export default function App() {
       } else actions.pick(dropdownId, choice);
     } else if (id.startsWith(SET_PREFIX)) {
       const [sliderId, value] = id.slice(SET_PREFIX.length).split(':');
-      if (SLIDERS.includes(sliderId) && Number.isFinite(Number(value))) actions.set(sliderId, Number(value));
+      if (!SLIDERS.includes(sliderId) || !Number.isFinite(Number(value))) return;
+      actions.set(sliderId, Number(value));
+      if (sliderId === 'vibration' && Number(value) !== state.vibration) {
+        // a buzz at the new strength shows it
+        setHapticStrength(Number(value));
+        pulseAll(session, 0.6, 60);
+      }
     } else if (DROPDOWNS.includes(id)) actions.toggleDropdown(id);
     else if (TOGGLES.includes(id)) actions.toggle(id);
   };
@@ -484,15 +543,7 @@ export default function App() {
     () => possibleLabels({ xrSupported, passthroughAvailable, views }),
     [xrSupported, passthroughAvailable, views],
   );
-  const menu = {
-    title: MENU_TITLE,
-    rows: MENU_ROWS,
-    labels,
-    status,
-    open: state.menuOpen,
-    items: menuItems({ ...state, view }, env),
-    onSelect,
-  };
+  const panels = panelModels({ ...state, view }, env, { status, labels, inXR });
   const notes = [
     !inXR && {
       text:
@@ -509,7 +560,8 @@ export default function App() {
         <XR store={store}>
           <Scene
             state={{ ...state, view, stereo: phoneStereo, handheld, domMenu, passthrough: state.background === 'passthrough' }}
-            menu={menu}
+            panels={panels}
+            onSelect={onSelect}
             phone={phone}
           />
         </XR>
@@ -518,7 +570,7 @@ export default function App() {
         {handheld ? (
           <CardboardOverlay split={phoneStereo} onHold={() => {}} onExit={exitXR} />
         ) : (
-          (!sessionActive || domMenu) && <Hud menu={menu} notes={notes} />
+          (!sessionActive || domMenu) && <Hud panels={panels} notes={notes} onSelect={onSelect} />
         )}
       </div>
     </>

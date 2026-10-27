@@ -2,16 +2,24 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { iconSvg } from './Icon.jsx';
-import { SECTION_PREFIX, SET_PREFIX, sliderValue, splitLabel } from './menu.js';
+import { MENU_TOGGLE, SECTION_PREFIX, SET_PREFIX, sliderValue, splitLabel } from './menu.js';
 import { useGazeTarget } from './Gaze.jsx';
+import { pulse } from './haptics.js';
+import { PanelSlab } from './PanelSlab.jsx';
+import { holding } from './grip.js';
 
-// The options panel in XR. It draws the same menu model as the windowed
-// panel (title, status lines, "Name: Value" buttons, and the shared
-// open / collapsed state) onto a canvas, since WebXR can't show page
-// elements. Collapsed, it is just the frame around the gear button. Controller rays, hand
+// The XR template for every panel (see menu.js panelModels): it draws the
+// same panel model as the windowed template, App's Panel (its toggle button,
+// title, status lines, "Name: Value" buttons, and the shared open /
+// collapsed state), onto a canvas, since WebXR can't show page elements.
+// Collapsed, it is just the frame around its toggle button (Options' gear;
+// the View panel is only ever that). Controller rays, hand
 // pinches and gaze pick a control from where they hit the texture. A panel taller
 // than MAX_HEIGHT scrolls under its title: push the right thumbstick up or
-// down while pointing at it.
+// down while pointing at it. Any edge or corner of the open panel drags to
+// resize it: its buttons take the new width, and a height shorter than its
+// buttons scrolls them. A 1 cm slab stands behind it (PanelSlab). A
+// controller's press buzzes it. Where it is, docked or free, is XRPanels'.
 
 const W = 1000; // canvas px of the reference width...
 const WIDTH_M = 0.44; // ...which is this many metres: sets the text size in XR
@@ -29,12 +37,19 @@ const COLLAPSED_W = PAD + TOGGLE + PAD;
 const COLLAPSED_H = TOGGLE_TOP + TOGGLE + TOGGLE_TOP;
 const PX_M = WIDTH_M / W; // metres per canvas px
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-export const MENU_TOGGLE = 'menu:toggle';
 const MAX_HEIGHT = 1300; // canvas px, about 57 cm: taller panels scroll
 const SCROLL_SPEED = 1400; // canvas px per second at full stick
 const STICK_DEADZONE = 0.2;
 const THUMBSTICK_Y = 3; // xr-standard gamepad axis
 const SCROLLBAR = 8;
+// resizing: a band along each edge, RESIZE_OUT px outside it (a margin the
+// texture leaves clear) to RESIZE_IN px inside; within CORNER of a corner it drags both edges
+const RESIZE_OUT = 44;
+const RESIZE_IN = 22;
+const CORNER = 90;
+const MIN_TRACK = 120; // a slider's track, at the narrowest
+const MIN_BUTTON = 420; // a button's width, at the narrowest
+const MAX_W = 2400; // canvas px, about 1 m
 
 const iconImages = new Map();
 function iconImage(name, onLoad) {
@@ -86,17 +101,53 @@ function panelWidth(title, labels) {
   return Math.ceil(2 * PAD + Math.max(button, titleRow));
 }
 
+/** The widest slider name: the sliders' tracks start together after it. */
+function sliderNameWidth(items) {
+  return Math.max(0, ...items.filter((i) => i.slider).map((i) => textWidth(`${splitLabel(i.label).name}:`, BUTTON_FONT)));
+}
+
+/** The narrowest the open panel can be resized to: every slider keeps a track. */
+function minPanelWidth(items) {
+  const name = sliderNameWidth(items);
+  const slider = name ? SECTION_INDENT + 2 * INSET + ICON + 3 * ICON_GAP + name + KNOB + MIN_TRACK + SLIDER_VALUE_W : 0;
+  return Math.ceil(2 * PAD + Math.max(MIN_BUTTON, slider));
+}
+
+/**
+ * The edges a point near the panel's border drags, as some of "t", "b", "l"
+ * and "r", or null. `px`, `py`: canvas px from the panel's top left, negative in the margin.
+ */
+function resizeEdges(px, py, width, height) {
+  const near = (d) => d >= -RESIZE_OUT && d < RESIZE_IN;
+  if (px < -RESIZE_OUT || py < -RESIZE_OUT || px > width + RESIZE_OUT || py > height + RESIZE_OUT) return null;
+  const l = near(px);
+  const r = near(width - px);
+  const t = near(py);
+  const b = near(height - py);
+  if (!(l || r || t || b)) return null;
+  const side = l || r;
+  const end = t || b;
+  return [
+    (t || (side && py < CORNER)) && 't',
+    (b || (side && height - py < CORNER)) && 'b',
+    (l || (end && px < CORNER)) && 'l',
+    (r || (end && width - px < CORNER)) && 'r',
+  ]
+    .filter(Boolean)
+    .join('');
+}
+
 /**
  * Canvas size and the hit rectangles for this state: { id, x, y, w, h } plus
  * `item` for a button or `option` for a choice in an open dropdown.
  */
-function layout(open, items, lines, panelW) {
-  const toggle = { id: MENU_TOGGLE, x: PAD, y: TOGGLE_TOP, w: TOGGLE, h: TOGGLE };
+function layout(open, items, lines, panelW, toggleId = MENU_TOGGLE) {
+  const toggle = { id: toggleId, x: PAD, y: TOGGLE_TOP, w: TOGGLE, h: TOGGLE };
   if (!open) return { width: COLLAPSED_W, height: COLLAPSED_H, rects: [toggle] };
   const rects = [toggle];
   const w = panelW - 2 * PAD;
   // the sliders' tracks start together, after the widest slider name
-  const sliderName = Math.max(0, ...items.filter((i) => i.slider).map((i) => textWidth(`${splitLabel(i.label).name}:`, BUTTON_FONT)));
+  const sliderName = sliderNameWidth(items);
   let y = TITLE_Y + 34 + lines * LINE_H + 16;
   for (const item of items) {
     const indent = item.indent ? SECTION_INDENT : 0;
@@ -207,18 +258,30 @@ function drawSlider(ctx, r, hot, redraw) {
   ctx.fill();
 }
 
-export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect, groupRef, ...groupProps }) {
+export function XRMenuPanel({ toggle, title, status, items, labels, rows, open, onSelect, groupRef, ...groupProps }) {
   const mesh = useRef(null);
+  // a resized panel: its top left in the group, in canvas px, and the width and the height cap it was given
+  const [frame, setFrame] = useState(null);
+  const [resizeHot, setResizeHot] = useState(null); // the edges under the pointer
+  const drag = useRef(null); // { pointerId, edges, from, start }
+  const resized = useRef(false); // the press that ends a resize isn't also a click
   const [pointerKey, setPointerKey] = useState(null);
   const [gazeKey, setGazeKey] = useState(null);
   const [iconsLoaded, setIconsLoaded] = useState(0);
   const statusLines = status ?? [];
   const lines = statusLines.length;
   const statusKey = statusLines.join('|'); // redraw when any line changes
-  const panelW = useMemo(() => panelWidth(title, labels ?? items.map((i) => i.label)), [title, labels, items]);
-  const { width, height: contentHeight, rects, top } = useMemo(() => layout(open, items, lines, panelW), [open, items, lines, panelW]);
-  // taller than MAX_HEIGHT: the buttons scroll between the title and the bottom edge
-  const height = open ? Math.min(contentHeight, MAX_HEIGHT) : contentHeight;
+  const autoW = useMemo(() => panelWidth(title, labels ?? items.map((i) => i.label)), [title, labels, items]);
+  const minW = useMemo(() => minPanelWidth(items), [items]);
+  const panelW = Math.max(minW, frame?.w ?? autoW);
+  const { width, height: contentHeight, rects, top } = useMemo(
+    () => layout(open, items, lines, panelW, toggle.id),
+    [open, items, lines, panelW, toggle.id],
+  );
+  // taller than MAX_HEIGHT, or than it was resized to: the buttons scroll between the title and the bottom edge
+  const minH = Math.min(contentHeight, (top ?? contentHeight) + 2 * (BUTTON_H + GAP) + PAD);
+  const height = open ? Math.min(contentHeight, Math.max(minH, frame?.h ?? MAX_HEIGHT)) : contentHeight;
+  const margin = open ? RESIZE_OUT : 0; // clear canvas around the panel, where its edges are grabbed
   const maxScroll = contentHeight - height;
   const clipTop = top - GAP / 2;
   const clipBottom = height - PAD / 2;
@@ -244,7 +307,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
   useFrame((_, dt, frame) => {
     if (!pointing.current || maxScroll <= 0 || !frame) return;
     for (const source of frame.session.inputSources) {
-      if (source.handedness !== 'right') continue;
+      if (source.handedness !== 'right' || holding.right) continue; // (holding a panel: its stick pushes and turns that)
       const y = source.gamepad?.axes[THUMBSTICK_Y] ?? 0;
       if (Math.abs(y) < STICK_DEADZONE) continue;
       setScroll((s) => THREE.MathUtils.clamp(Math.min(s, maxScroll) + y * SCROLL_SPEED * Math.min(dt, 0.1), 0, maxScroll));
@@ -255,13 +318,16 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     () => layout(true, Array.from({ length: Math.max(rows ?? 0, items.length) }, () => ({})), lines, panelW).height,
     [rows, items.length, lines, panelW],
   );
+  // the panel's top left in the group: until resized, the open panel is centred on it
+  const left = frame?.left ?? -autoW / 2;
+  const topEdge = frame?.top ?? -openHeight / 2;
 
   const canvas = useMemo(() => {
     const c = document.createElement('canvas');
-    c.width = width;
-    c.height = height;
+    c.width = width + 2 * margin;
+    c.height = height + 2 * margin;
     return c;
-  }, [width, height]);
+  }, [width, height, margin]);
   const texture = useMemo(() => {
     const t = new THREE.CanvasTexture(canvas);
     t.colorSpace = THREE.SRGBColorSpace;
@@ -270,11 +336,18 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
   }, [canvas]);
   useEffect(() => () => texture.dispose(), [texture]);
 
+  // the visible panel in the mesh's metres (the canvas leaves a clear margin round it): XRPanels stacks docked panels by it
+  useEffect(() => {
+    mesh.current.userData.panelBox = { left: (-width / 2) * PX_M, right: (width / 2) * PX_M, bottom: (-height / 2) * PX_M, top: (height / 2) * PX_M };
+  }, [width, height]);
+
   const hovered = gazeKey ?? pointerKey;
   useEffect(() => {
     const ctx = canvas.getContext('2d');
     const redraw = () => setIconsLoaded((n) => n + 1);
-    ctx.clearRect(0, 0, width, height);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(1, 0, 0, 1, margin, margin); // everything below in panel px, from its top left
 
     roundRect(ctx, 4, 4, width - 8, height - 8, 40);
     ctx.fillStyle = 'rgba(12, 16, 28, 0.9)';
@@ -283,13 +356,13 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     ctx.lineWidth = 4;
     ctx.stroke();
 
-    // the gear button, top left, in the title row: collapses and expands the panel
-    const toggle = rects[0];
-    drawButtonFrame(ctx, toggle, { hot: hovered === MENU_TOGGLE });
-    const gear = iconImage('gear', redraw);
-    const gearSize = toggle.w * 0.5;
-    if (gear.complete && gear.naturalWidth)
-      ctx.drawImage(gear, toggle.x + (toggle.w - gearSize) / 2, toggle.y + (toggle.h - gearSize) / 2, gearSize, gearSize);
+    // its toggle button, top left, in the title row: Options' gear collapses and expands it
+    const button = rects[0];
+    drawButtonFrame(ctx, button, { hot: hovered === toggle.id });
+    const icon = iconImage(toggle.icon, redraw);
+    const iconSize = button.w * 0.5;
+    if (icon.complete && icon.naturalWidth)
+      ctx.drawImage(icon, button.x + (button.w - iconSize) / 2, button.y + (button.h - iconSize) / 2, iconSize, iconSize);
     if (!open) {
       texture.needsUpdate = true;
       return;
@@ -311,7 +384,7 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
     ctx.clip();
     ctx.translate(0, -scrolled);
     for (const r of rects) {
-      if (r.id === MENU_TOGGLE) continue;
+      if (r === rects[0]) continue; // (the toggle button, drawn above)
       if (r.option) {
         // a choice in an open dropdown: smaller, the current one lit and ticked, one this device can't use dimmed
         const { option } = r;
@@ -386,23 +459,74 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
       ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
       ctx.fill();
     }
+
+    // the edges being resized, or that a press would resize, lit: one side, or a corner
+    const edges = drag.current?.edges ?? resizeHot;
+    if (edges) {
+      ctx.save();
+      ctx.beginPath();
+      if (edges.length === 2) {
+        const x = edges.includes('l') ? -margin : width - CORNER;
+        const y = edges.includes('t') ? -margin : height - CORNER;
+        ctx.rect(x, y, CORNER + margin, CORNER + margin);
+      } else if (edges === 'l' || edges === 'r') ctx.rect(edges === 'l' ? -margin : width - CORNER, -margin, CORNER + margin, height + 2 * margin);
+      else ctx.rect(-margin, edges === 't' ? -margin : height - CORNER, width + 2 * margin, CORNER + margin);
+      ctx.clip();
+      roundRect(ctx, 4, 4, width - 8, height - 8, 40);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.lineWidth = 8;
+      ctx.stroke();
+      ctx.restore();
+    }
     texture.needsUpdate = true;
-  }, [canvas, texture, width, height, contentHeight, rects, clipTop, clipBottom, scrolled, maxScroll, open, title, statusKey, hovered, iconsLoaded]);
+  }, [canvas, texture, width, height, margin, contentHeight, rects, clipTop, clipBottom, scrolled, maxScroll, open, title, toggle.icon, toggle.id, statusKey, hovered, resizeHot, iconsLoaded]);
+
+  /** Where a hit is, in canvas px from the panel's top left. */
+  const panelPoint = (hit) => ({ x: hit.uv.x * (width + 2 * margin) - margin, y: (1 - hit.uv.y) * (height + 2 * margin) - margin });
+  /** Where a hit is on the panel's plane, in canvas px in the group (y down), even off the panel during a resize. */
+  const groupPoint = (hit) => {
+    const p = mesh.current.parent.worldToLocal((hit.pointOnFace ?? hit.point).clone());
+    return { x: p.x / PX_M, y: -p.y / PX_M };
+  };
+  const edgesAt = (hit) => {
+    if (!open || !hit?.uv) return null;
+    const { x, y } = panelPoint(hit);
+    return resizeEdges(x, y, width, height);
+  };
+  const resize = (hit) => {
+    const { edges, from, start } = drag.current;
+    const p = groupPoint(hit);
+    const dx = p.x - from.x;
+    const dy = p.y - from.y;
+    const next = { ...start };
+    // the opposite edge stays put
+    if (edges.includes('r')) next.w = THREE.MathUtils.clamp(start.w + dx, minW, MAX_W);
+    if (edges.includes('l')) {
+      next.w = THREE.MathUtils.clamp(start.w - dx, minW, MAX_W);
+      next.left = start.left + start.w - next.w;
+    }
+    if (edges.includes('b')) next.h = THREE.MathUtils.clamp(start.h + dy, minH, contentHeight);
+    if (edges.includes('t')) {
+      next.h = THREE.MathUtils.clamp(start.h - dy, minH, contentHeight);
+      next.top = start.top + start.h - next.h;
+    }
+    setFrame(next);
+  };
 
   const pick = (hit) => {
     if (!hit?.uv) return null;
-    const px = hit.uv.x * width;
-    let py = (1 - hit.uv.y) * height;
+    const { x: px, y } = panelPoint(hit);
+    let py = y;
     const inside = (q) => px >= q.x && px <= q.x + q.w && py >= q.y && py <= q.y + q.h;
-    if (open && inside(rects[0])) return MENU_TOGGLE; // the title row doesn't scroll
+    if (open && inside(rects[0])) return toggle.id; // the title row doesn't scroll
     if (open && (py < clipTop || py > clipBottom)) return null;
     if (open) py += scrolled;
     const r = rects.find(inside);
     if (r?.track) return sliderKey(r, px);
     return r && !r.item?.disabled && !r.option?.disabled ? r.id : null;
   };
-  // the gear, sections and dropdowns open and close: a stare fires them once
-  const toggles = (key) => key === MENU_TOGGLE || key.startsWith(SECTION_PREFIX) || Boolean(rects.find((r) => r.id === key)?.item?.dropdown);
+  // toggle buttons, sections and dropdowns open and close (or switch the view): a stare fires them once
+  const toggles = (key) => key === toggle.id || key.startsWith(SECTION_PREFIX) || Boolean(rects.find((r) => r.id === key)?.item?.dropdown);
   useGazeTarget(mesh, onSelect, setGazeKey, pick, toggles);
 
   return (
@@ -411,22 +535,51 @@ export function XRMenuPanel({ title, status, items, labels, rows, open, onSelect
         ref={mesh}
         // drawn over the scene, never inside it (the reticle draws above, at 1000)
         renderOrder={900}
-        position={[((width - panelW) / 2) * PX_M, ((openHeight - height) / 2) * PX_M, 0]}
+        position={[(left + width / 2) * PX_M, -(topEdge + height / 2) * PX_M, 0]}
         onPointerOver={() => (pointing.current = true)}
-        onPointerMove={(e) => setPointerKey(pick(e))}
+        onPointerDown={(e) => {
+          resized.current = false;
+          if (e.pointerType === 'grab') return; // (a grip: XRPanels takes the panel)
+          const edges = edgesAt(e);
+          if (!edges || drag.current) return;
+          e.stopPropagation();
+          mesh.current.setPointerCapture?.(e.pointerId);
+          drag.current = { pointerId: e.pointerId, edges, from: groupPoint(e), start: { left, top: topEdge, w: panelW, h: height } };
+          resized.current = true;
+          pulse(e.pointerState?.inputSource?.gamepad, 0.4, 20);
+        }}
+        onPointerMove={(e) => {
+          if (drag.current) {
+            if (e.pointerId === drag.current.pointerId) resize(e);
+            return;
+          }
+          setPointerKey(pick(e));
+          setResizeHot(edgesAt(e));
+        }}
+        onPointerUp={(e) => {
+          if (drag.current?.pointerId !== e.pointerId) return;
+          mesh.current.releasePointerCapture?.(e.pointerId);
+          drag.current = null;
+          setResizeHot(edgesAt(e));
+        }}
         onPointerOut={() => {
           pointing.current = false;
           setPointerKey(null);
+          setResizeHot(null);
         }}
         onClick={(e) => {
+          if (resized.current || e.pointerType === 'grab') return;
           const key = pick(e);
           if (key == null) return;
           e.stopPropagation();
+          pulse(e.pointerState?.inputSource?.gamepad, 0.5, 25); // (the controller that pressed)
           onSelect(key);
         }}
       >
-        <planeGeometry args={[width * PX_M, height * PX_M]} />
-        <meshBasicMaterial map={texture} transparent depthTest={false} depthWrite={false} toneMapped={false} />
+        <planeGeometry args={[(width + 2 * margin) * PX_M, (height + 2 * margin) * PX_M]} />
+        {/* both faces: the panel reads, and takes presses, from behind too */}
+        <meshBasicMaterial map={texture} side={THREE.DoubleSide} transparent depthTest={false} depthWrite={false} toneMapped={false} />
+        <PanelSlab width={(width - 8) * PX_M} height={(height - 8) * PX_M} radius={40 * PX_M} />
       </mesh>
     </group>
   );
