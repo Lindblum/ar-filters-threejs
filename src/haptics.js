@@ -1,26 +1,13 @@
-// The XR controllers' buzz, at Accessibility → Vibration's strength.
+// The XR controllers' buzz: as a press, grab or dock happens.
 
-let strength = 1; // 0 (off) to 2; 1 as made
-
-/** Accessibility → Vibration: every pulse's strength, a multiplier. */
-export function setVibration(v) {
-  strength = v;
-}
-
-/** A pulse on `gamepad`'s controller (nothing without one, or at Off); `intensity` 0..1 as made, for `ms`. */
+/** A pulse on `gamepad`'s controller (nothing without one); `intensity` 0..1, for `ms`. */
 export function pulse(gamepad, intensity, ms) {
-  const v = Math.min(1, intensity * strength); // (1: the most a controller does)
-  if (!gamepad || v <= 0) return;
+  if (!gamepad) return;
   try {
     const actuator = gamepad.hapticActuators?.[0];
-    if (actuator?.pulse) actuator.pulse(v, ms);
-    else gamepad.vibrationActuator?.playEffect?.('dual-rumble', { duration: ms, strongMagnitude: v });
+    if (actuator?.pulse) actuator.pulse(intensity, ms);
+    else gamepad.vibrationActuator?.playEffect?.('dual-rumble', { duration: ms, strongMagnitude: intensity });
   } catch {
     /* no haptics here */
   }
-}
-
-/** A pulse on every controller in XR session `session`. */
-export function pulseAll(session, intensity, ms) {
-  for (const source of session?.inputSources ?? []) pulse(source.gamepad, intensity, ms);
 }

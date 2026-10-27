@@ -181,13 +181,6 @@ const PERIPHERY_LABELS = { black: 'Black', outfill: 'Outfill' };
 export const TEXT_SIZE = { min: 0.75, max: 2, step: 0.25 };
 const textSizeLabel = (t) => `${Math.round(t * 100)}%`;
 
-/**
- * Accessibility → Vibration: the controllers' haptics, 0 (off) to 2 (1 as
- * made; above, every buzz stronger, up to the controller's most). See haptics.js.
- */
-export const VIBRATION = { min: 0, max: 2, step: 0.1 };
-const vibrationLabel = (v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off');
-
 /** The dropdowns' ids. */
 export const DROPDOWNS = ['depthMode', 'filter', 'periphery', 'background', 'view'];
 
@@ -195,7 +188,7 @@ export const DROPDOWNS = ['depthMode', 'filter', 'periphery', 'background', 'vie
 export const TOGGLES = ['depthMesh', 'controllerGuide'];
 
 /** The sliders' ids. */
-export const SLIDERS = ['convergence', 'smoothing', 'strength', 'zoom', 'textSize', 'vibration'];
+export const SLIDERS = ['convergence', 'smoothing', 'strength', 'zoom', 'textSize'];
 
 /** One-shot actions, by button id. */
 export const ACTIONS = [];
@@ -311,7 +304,7 @@ function videoItems(state, env) {
   ];
 }
 
-/** Accessibility: the panels' Text Size, the controllers' Vibration, and the XR Controller Guide. */
+/** Accessibility: the panels' Text Size and the XR Controller Guide. */
 function accessibilityItems(state) {
   return [
     {
@@ -322,16 +315,9 @@ function accessibilityItems(state) {
       slider: { ...TEXT_SIZE, value: state.textSize },
     },
     {
-      id: 'vibration',
-      label: `Vibration: ${vibrationLabel(state.vibration)}`,
-      icon: state.vibration > 0 ? 'vibrationOn' : 'vibrationOff',
-      title: "The XR controllers' buzz as you press the panel or grab it: 100% as made, more makes every buzz stronger",
-      slider: { ...VIBRATION, value: state.vibration },
-    },
-    {
       id: 'controllerGuide',
       label: `Controller Guide: ${onOff(state.controllerGuide)}`,
-      icon: state.controllerGuide ? 'controllerGuideOn' : 'controllerGuideOff',
+      icon: 'gamepad',
       title: "In XR, a label beside each of the controllers' buttons and sticks saying what it does",
     },
   ];
@@ -368,12 +354,11 @@ export const MENU_TOGGLE = 'menu:toggle';
 export const VIEW_TOGGLE = 'view:toggle';
 
 /**
- * The XR view the View panel's button enters: on phones XR: Phone Viewer,
- * elsewhere XR: Headset; null where it can't be used.
+ * The XR view the View panel's button enters, XR: Headset, or null where a
+ * headset can't be used (phones, desktops without WebXR).
  */
 export function viewPanelTarget(env) {
-  const view = env.phone ? 'phoneViewer' : 'xr';
-  return (env.views ?? []).includes(view) ? view : null;
+  return (env.views ?? []).includes('xr') ? 'xr' : null;
 }
 
 /**
@@ -381,10 +366,10 @@ export function viewPanelTarget(env) {
  * Panel, in a column at the top left) and the XR one (XRMenuPanel, docked or
  * free: see XRPanels). Each: { key, toggle: { id, icon, label }, open, title,
  * status, items, labels, rows }. Options: the gear, the title, `status` lines
- * and the buttons (menuItems). View, as in grid-game-threejs: one button,
- * always collapsed, switching between the Normal view (the monitor, shown in
- * XR) and the XR view it shows (viewPanelTarget); not there when this device
- * has no XR view. `labels`: possibleLabels, for the panels' widths.
+ * and the buttons (menuItems). View, as in grid-game-threejs, xr-music-threejs
+ * and 4d-viewer-threejs: one button, always collapsed, switching between the
+ * Normal view and XR: Headset, showing the one it switches to (outside XR the
+ * headset, in XR the monitor); only where a headset can be used. `labels`: possibleLabels, for the panels' widths.
  */
 export function panelModels(state, env, { status, labels, inXR }) {
   const panels = [
@@ -399,11 +384,10 @@ export function panelModels(state, env, { status, labels, inXR }) {
       rows: MENU_ROWS,
     },
   ];
-  const target = viewPanelTarget(env);
-  if (inXR || target) {
+  if (viewPanelTarget(env)) {
     panels.push({
       key: 'view',
-      toggle: inXR ? { id: VIEW_TOGGLE, icon: 'monitor', label: 'Normal view' } : { id: VIEW_TOGGLE, icon: VIEW_ICONS[target], label: VIEW_LABELS[target] },
+      toggle: inXR ? { id: VIEW_TOGGLE, icon: 'monitor', label: 'Normal view' } : { id: VIEW_TOGGLE, icon: 'vr', label: VIEW_LABELS.xr },
       open: false,
       items: [],
     });
@@ -423,7 +407,6 @@ const SAMPLE_STATE = {
   background: BACKGROUNDS[0],
   view: 'normal',
   textSize: 1,
-  vibration: 1,
   sections: SECTIONS,
 };
 export const MENU_ROWS = menuItems(SAMPLE_STATE, {}).length;
@@ -447,7 +430,6 @@ export function possibleLabels(env) {
     ...BACKGROUNDS.map((background) => ({ background })),
     ...VIEWS.map((view) => ({ view })),
     ...sliderValues(TEXT_SIZE).map((textSize) => ({ textSize })),
-    ...sliderValues(VIBRATION).map((vibration) => ({ vibration })),
     { depthMesh: false },
     { controllerGuide: true },
   ];

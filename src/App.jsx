@@ -10,7 +10,6 @@ import { MODELS } from './depth/ml.js';
 import { useDepthStatus } from './depth/store.js';
 import { FILTERS, setFilter } from './filters.js';
 import { loadSettings, saveSettings } from './settings.js';
-import { pulseAll, setVibration as setHapticStrength } from './haptics.js';
 import {
   DEPTH_MODE_LABELS,
   DROPDOWNS,
@@ -103,7 +102,6 @@ function useAppState() {
   const [filter, setFilterName] = useState(saved.filter ?? 'none');
   const [background, setBackground] = useState(saved.background ?? 'passthrough'); // see menu.js BACKGROUNDS
   const [textSize, setTextSize] = useState(saved.textSize ?? 1); // the panels' text and icons, a multiplier
-  const [vibration, setVibration] = useState(saved.vibration ?? 1); // the controllers' haptics, 0 (off) to 2, see haptics.js
   const [controllerGuide, setControllerGuide] = useState(saved.controllerGuide ?? false); // XR labels beside the controllers' buttons
   const [menuOpen, setMenuOpen] = useState(saved.menuOpen ?? true); // shared by the windowed and XR panels
   const [sections, setSections] = useState(saved.sections ?? ['depth', 'video']); // the open sections, see menu.js
@@ -128,7 +126,6 @@ function useAppState() {
           smoothing: setSmoothing,
           zoom: setZoom,
           textSize: setTextSize,
-          vibration: setVibration,
         })[id](value),
       /** A choice from a dropdown's list (see dropdownChoices), which then closes. */
       pick: (id, choice) => {
@@ -149,7 +146,6 @@ function useAppState() {
     filter,
     background,
     textSize,
-    vibration,
     controllerGuide,
     menuOpen,
     sections,
@@ -157,11 +153,10 @@ function useAppState() {
   };
   useEffect(
     () => saveSettings(state),
-    [depthMode, smoothing, convergence, depthMesh, strength, zoom, periphery, filter, background, textSize, vibration, controllerGuide, menuOpen, sections],
+    [depthMode, smoothing, convergence, depthMesh, strength, zoom, periphery, filter, background, textSize, controllerGuide, menuOpen, sections],
   );
-  // the windowed panel's text and icons (styles.css), and every pulse's strength
+  // the windowed panel's text and icons (styles.css)
   useEffect(() => document.documentElement.style.setProperty('--text-scale', String(textSize)), [textSize]);
-  useEffect(() => setHapticStrength(vibration), [vibration]);
   return [state, actions];
 }
 
@@ -288,14 +283,69 @@ function MenuButtons({ items, labels, onSelect }) {
   );
 }
 
+const PANEL_MIN = { width: 220, height: 120 }; // px: the smallest a panel can be dragged to
+const PANEL_MARGIN = 12; // px kept clear between a panel and the window's right and bottom edges
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
+
+/**
+ * An open panel's size, from dragging its grip (bottom right: its top left
+ * stays put; its contents keep their size, scrolling if it's shorter): returns
+ * [style, grip handlers]. Double-click goes back to the automatic size.
+ * Remembered in this browser, by panel.
+ */
+function usePanelSize(key, panelRef) {
+  const storageKey = `ar-filters-panel-size.${key}`;
+  const [size, setSize] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem(storageKey));
+      return Number.isFinite(s?.width) && Number.isFinite(s?.height) ? s : null;
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    try {
+      if (size) localStorage.setItem(storageKey, JSON.stringify(size));
+      else localStorage.removeItem(storageKey);
+    } catch {
+      /* private browsing: not remembered */
+    }
+  }, [storageKey, size]);
+  const from = useRef(null);
+  const grip = {
+    onPointerDown: (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      const box = panelRef.current.getBoundingClientRect();
+      from.current = { x: e.clientX, y: e.clientY, box };
+    },
+    onPointerMove: (e) => {
+      const f = from.current;
+      if (!f) return;
+      setSize({
+        width: Math.round(clamp(f.box.width + e.clientX - f.x, PANEL_MIN.width, window.innerWidth - f.box.left - PANEL_MARGIN)),
+        height: Math.round(clamp(f.box.height + e.clientY - f.y, PANEL_MIN.height, window.innerHeight - f.box.top - PANEL_MARGIN)),
+      });
+    },
+    onPointerUp: () => (from.current = null),
+    onPointerCancel: () => (from.current = null),
+    onDoubleClick: () => setSize(null),
+  };
+  return [size ?? {}, grip];
+}
+
 /**
  * The windowed template for every panel (see menu.js panelModels; XRMenuPanel
  * is the XR one): its toggle button, and when open its title, status lines,
- * buttons and any `notes` (windowed only). Collapsed, just the frame around
- * the toggle button.
+ * buttons, any `notes` (windowed only) and its resize grip, three diagonal
+ * lines in the bottom right corner (the XR panel's is top right). Collapsed,
+ * just the frame around the toggle button.
  */
 function Panel({ panel, notes = [], onSelect }) {
   const { toggle } = panel;
+  const panelRef = useRef(null);
+  const [size, grip] = usePanelSize(panel.key, panelRef);
   const button = (
     <button className="collapse" onClick={() => onSelect(toggle.id)} aria-label={toggle.label} title={toggle.label}>
       <Icon name={toggle.icon} />
@@ -309,7 +359,8 @@ function Panel({ panel, notes = [], onSelect }) {
     );
   }
   return (
-    <aside className="hud">
+    <aside className="hud" ref={panelRef} style={size}>
+      <div className="resize-grip" title="Drag to resize (double-click: reset)" {...grip} />
       <header>
         {button}
         <h1>{panel.title}</h1>
@@ -501,13 +552,7 @@ export default function App() {
       } else actions.pick(dropdownId, choice);
     } else if (id.startsWith(SET_PREFIX)) {
       const [sliderId, value] = id.slice(SET_PREFIX.length).split(':');
-      if (!SLIDERS.includes(sliderId) || !Number.isFinite(Number(value))) return;
-      actions.set(sliderId, Number(value));
-      if (sliderId === 'vibration' && Number(value) !== state.vibration) {
-        // a buzz at the new strength shows it
-        setHapticStrength(Number(value));
-        pulseAll(session, 0.6, 60);
-      }
+      if (SLIDERS.includes(sliderId) && Number.isFinite(Number(value))) actions.set(sliderId, Number(value));
     } else if (DROPDOWNS.includes(id)) actions.toggleDropdown(id);
     else if (TOGGLES.includes(id)) actions.toggle(id);
   };

@@ -173,6 +173,24 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   min-height: 0;
 }
 .hud.collapsed { flex: none; }
+.hud { position: relative; }
+.hud-body { flex: 1; }
+/* an open panel's resize grip: three diagonal ridges across its bottom right corner (as grid-game-threejs's) */
+.resize-grip {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  opacity: 0.45;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: var(--muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cg stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M10 15L15 10M5.5 15L15 5.5M1 15L15 1'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cg stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M10 15L15 10M5.5 15L15 5.5M1 15L15 1'/%3E%3C/g%3E%3C/svg%3E") center / contain no-repeat;
+}
+.resize-grip:hover { opacity: 1; }
 .hud header { flex: none; }
 .hud-body {
   min-height: 0;
