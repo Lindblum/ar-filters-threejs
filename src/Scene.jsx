@@ -97,6 +97,19 @@ function Player({ origin, children }) {
   return <XROrigin ref={origin}>{children}</XROrigin>;
 }
 
+/**
+ * Lighting as in xr-music-threejs, a soft hemisphere and an overhead sun: the
+ * controllers' models are the only lit things here (without it they show black).
+ */
+function Lights() {
+  return (
+    <>
+      <hemisphereLight args={[0xbcbcbc, 0xa5a5a5, 3]} />
+      <directionalLight position={[0, 6, 0]} intensity={3} />
+    </>
+  );
+}
+
 /** A floor grid for the windowed view, for a sense of scale. */
 function FloorGrid() {
   return <gridHelper args={[10, 20, '#5a6278', '#3a4052']} raycast={() => null} />;
@@ -134,6 +147,7 @@ export default function Scene({ state, panels, onSelect, phone }) {
       {state.view === 'sbs' && !immersive && <SideBySide />}
       {state.view === 'interlaced' && !immersive && <Interlaced />}
       {phoneStereo && <PhoneStereoXR strength={state.strength} convergence={state.convergence} zoom={state.zoom} />}
+      <Lights />
       {!inSession && <FloorGrid />}
       <DepthSource mode={state.depthMode} smoothing={state.smoothing} />
       <Player origin={origin}>
