@@ -590,12 +590,6 @@ export default function App() {
   );
   const panels = panelModels({ ...state, view }, env, { status, labels, inXR });
   const notes = [
-    !inXR && {
-      text:
-        phone || headset
-          ? 'Choose Video → View Mode → XR: Phone Viewer for stereo with depth, or XR: Phone AR for one view.'
-          : 'On an Android phone, open this page in Chrome and choose Video → View Mode → XR: Phone Viewer.',
-    },
     error && { text: error, error: true },
   ].filter(Boolean);
 
