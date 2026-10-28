@@ -26,9 +26,15 @@ import { pulse } from './haptics.js';
 // every undocked panel to that controller, flying there.
 
 const HANDS = ['left', 'right'];
-// docked, in grip space (-Z forward out of the controller, +Y up out of its top): the stack's bottom here...
-const DOCK_ANCHOR = new THREE.Vector3(0, 0.05, 0.02);
-const DOCK_TILT = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -0.5); // ...the top leaning back toward the face
+// docked, in the controller's pointing frame (-Z forward along its ray, +Y up): the stack's bottom on
+// its hand's anchor, the faces tipped up toward the eyes. On the left hand: 1 cm left, 6 cm up, 2 cm
+// back, tilted 45° (the top leaning forward) and rolled 5°; the right hand mirrors it (as tuned in
+// grid-game-threejs: Debug → Docking)
+const dockPose = (mirror) => ({
+  anchor: new THREE.Vector3(-0.01 * mirror, 0.06, 0.02),
+  turn: new THREE.Quaternion().setFromEuler(new THREE.Euler(THREE.MathUtils.degToRad(-45), 0, THREE.MathUtils.degToRad(5 * mirror), 'YXZ')),
+});
+const DOCK_POSE = { left: dockPose(1), right: dockPose(-1) };
 const DOCK_SCALE = 0.5;
 const DOCK_GAP = 0.008; // m between stacked panels
 // without controllers: the stack's middle here, in the player's origin, turned toward them
@@ -244,9 +250,9 @@ export function XRPanels({ panels: models, onSelect, textScale, phoneStereo }) {
 
   /**
    * Panels `keys` (top to bottom) stacked upward in `parent` (a world matrix): on a controller, from
-   * DOCK_ANCHOR, tilted; without (`centred`), upright about its middle.
+   * `hand`'s DOCK_POSE, tilted; without (`centred`), upright about its middle.
    */
-  const layoutStack = (keys, parent, centred, scale, now) => {
+  const layoutStack = (keys, parent, centred, scale, now, hand) => {
     const stack = keys
       .map((key) => ({ key, group: groups[key].current, face: faceOf(groups[key].current) }))
       .filter((p) => p.face)
@@ -260,8 +266,8 @@ export function XRPanels({ panels: models, onSelect, textScale, phoneStereo }) {
       _v.set(left - box.left * scale, y - box.bottom * scale, i * 0.0005); // (each a hair in front of the last)
       _q.identity();
       if (!centred) {
-        _v.applyQuaternion(DOCK_TILT).add(DOCK_ANCHOR);
-        _q.copy(DOCK_TILT);
+        _v.applyQuaternion(DOCK_POSE[hand].turn).add(DOCK_POSE[hand].anchor);
+        _q.copy(DOCK_POSE[hand].turn);
       }
       const world = new THREE.Matrix4().compose(_v, _q, _s.setScalar(scale)).premultiply(parent);
       const fly = panels.current[key].fly;
@@ -326,7 +332,7 @@ export function XRPanels({ panels: models, onSelect, textScale, phoneStereo }) {
       e.on = controllers[e.dock] ? e.dock : controllers[other(e.dock)] ? other(e.dock) : 'gaze';
       rows[e.on].push(key);
     }
-    for (const hand of HANDS) if (rows[hand].length) layoutStack(rows[hand], controllers[hand].grip, false, DOCK_SCALE * textScale, now);
+    for (const hand of HANDS) if (rows[hand].length) layoutStack(rows[hand], controllers[hand].rayMatrix, false, DOCK_SCALE * textScale, now, hand);
     if (rows.gaze.length) layoutStack(rows.gaze, _n.multiplyMatrices(origin.matrixWorld, GAZE_POSE).clone(), true, freeScale, now);
   });
 
