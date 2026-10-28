@@ -43,10 +43,9 @@ const SCROLL_SPEED = 1400; // canvas px per second at full stick
 const STICK_DEADZONE = 0.2;
 const THUMBSTICK_Y = 3; // xr-standard gamepad axis
 const SCROLLBAR = 8;
-// the resize grip: three diagonal lines GRIP px square, GRIP_INSET in from the top right
-// corner; a press within GRIP_HIT px of that corner takes it
-const GRIP = 34;
-const GRIP_INSET = 22;
+// the resize grip, as grid-game-threejs's: three diagonal ridges in a GRIP px
+// (2.2 cm) square at the top right corner; a press within GRIP_HIT px of that corner takes it
+const GRIP = 50;
 const GRIP_HIT = 96;
 const MIN_TRACK = 120; // a slider's track, at the narrowest
 const MIN_BUTTON = 420; // a button's width, at the narrowest
@@ -117,21 +116,22 @@ function minPanelWidth(items) {
 /** Whether canvas point `px`, `py` (from the panel's top left) is on the resize grip of a panel `width` wide. */
 const onGrip = (px, py, width) => px >= width - GRIP_HIT && px <= width && py >= 0 && py <= GRIP_HIT;
 
-/** The resize grip, top right: three diagonal lines across the corner, brighter when `hot`. */
+/** The resize grip, top right: three diagonal ridges across the corner (as grid-game-threejs's), blue and bolder when `hot`. */
 function drawGrip(ctx, width, hot) {
-  const x1 = width - GRIP_INSET;
-  const y0 = GRIP_INSET;
+  const k = GRIP / 64;
+  const right = width - 14 * k;
+  const top = 14 * k;
   ctx.save();
-  ctx.strokeStyle = hot ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.45)';
-  ctx.lineWidth = 4.5;
+  ctx.strokeStyle = hot ? '#9cc8ff' : 'rgba(255, 255, 255, 0.4)';
+  ctx.lineWidth = (hot ? 5 : 3) * k;
   ctx.lineCap = 'round';
-  ctx.beginPath();
-  for (const k of [1 / 3, 2 / 3, 1]) {
+  for (const d of [18, 32, 46]) {
     // from the top edge down to the right edge, each further from the corner
-    ctx.moveTo(x1 - GRIP * k, y0);
-    ctx.lineTo(x1, y0 + GRIP * k);
+    ctx.beginPath();
+    ctx.moveTo(right - d * k, top);
+    ctx.lineTo(right, top + d * k);
+    ctx.stroke();
   }
-  ctx.stroke();
   ctx.restore();
 }
 

@@ -105,9 +105,9 @@ const accessibility = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" f
 <path d="M6.25 9.6h11.5M12 9.6v4.3M9.1 18.7l2.9-4.8 2.9 4.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
-// Text Size: a small and a large "A"
+// Text Size: a large "A", then a small one
 const textSize = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-<path d="M2.9 18.7 6.25 10.1l3.35 8.6M4.3 15.4h3.9M11 19.2 16.1 4.8l5.05 14.4M13 13.9h6.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M2.85 19.2 7.95 4.8l5.05 14.4M4.85 13.9h6.2M14.4 18.7l3.35-8.6 3.35 8.6M15.8 15.4h3.9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
 const ICONS = {
