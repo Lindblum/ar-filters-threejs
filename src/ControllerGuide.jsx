@@ -3,8 +3,9 @@ import { useFrame } from '@react-three/fiber';
 import { useXRStore } from '@react-three/xr';
 import * as THREE from 'three';
 import { holding } from './grip.js';
+import { xrTexts } from './controls.js';
 
-// Accessibility → Controller Guide (XR), as in grid-game-threejs: a label
+// Accessibility → XR Control Guides, as in grid-game-threejs: a label
 // beside each of a controller's buttons, sticks, triggers and grips saying
 // what it does. Each label points, with a thin leader line, at the middle of
 // that part on the controller's own model (the motion-controllers profile's
@@ -34,24 +35,6 @@ const PLACE = {
   'xr-standard-thumbstick': 'outer',
   menu: 'outer',
 };
-
-/**
- * What each part of `hand`'s controller does: { componentId: text }. Grips
- * take, dock and summon the panels (see XRPanels); a grip holding one gives
- * its stick to it. Otherwise the left stick moves and the right turns (see
- * Scene's Player), and also scrolls the Options panel it points at.
- */
-function guideTexts(hand) {
-  const t = { 'xr-standard-trigger': 'Press panels' };
-  if (holding[hand]) {
-    t['xr-standard-squeeze'] = 'Let go to drop';
-    t['xr-standard-thumbstick'] = '↕ Push / pull\n↔ Turn it';
-  } else {
-    t['xr-standard-squeeze'] = 'Grab a panel\n×2: Dock / undock panels\n×3: Summon panels';
-    t['xr-standard-thumbstick'] = hand === 'left' ? 'Move' : '↔ Turn\n↕ Scroll the panel';
-  }
-  return t;
-}
 
 const _p = new THREE.Vector3();
 const _at = new THREE.Vector3();
@@ -204,7 +187,7 @@ export function ControllerGuide({ on, textScale }) {
         for (const l of labels[hand].values()) l.hide();
         continue;
       }
-      const texts = guideTexts(hand);
+      const texts = xrTexts(hand, holding[hand]);
       const outward = hand === 'left' ? -1 : 1; // (the outer side, as you see it)
       model.updateWorldMatrix(true, true);
       model.getWorldPosition(_at);

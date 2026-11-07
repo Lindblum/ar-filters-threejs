@@ -5,7 +5,7 @@
 // to the default, never put the menu in a state it can't show.
 
 import { FILTERS } from './filters.js';
-import { BACKGROUNDS, CONVERGENCE, DEPTH_MODES, PERIPHERIES, SECTIONS, SMOOTHING, STRENGTH, TEXT_SIZE, ZOOM } from './menu.js';
+import { BACKGROUNDS, CONVERGENCE, DEPTH_MODES, PERIPHERIES, SECTIONS, SMOOTHING, STRENGTH, TEXT_SIZE, VOLUME, ZOOM } from './menu.js';
 
 const COOKIE = 'ar-filters-settings';
 const MAX_AGE = 60 * 60 * 24 * 365; // seconds: a year
@@ -24,6 +24,7 @@ const VALID = {
   periphery: oneOf(PERIPHERIES),
   filter: oneOf(FILTERS),
   background: oneOf(BACKGROUNDS),
+  volume: inRange(VOLUME),
   textSize: inRange(TEXT_SIZE),
   controllerGuide: (v) => typeof v === 'boolean',
   menuOpen: (v) => typeof v === 'boolean',
@@ -39,6 +40,7 @@ export function loadSettings() {
     const entry = document.cookie.split('; ').find((c) => c.startsWith(`${COOKIE}=`));
     if (!entry) return {};
     const saved = JSON.parse(decodeURIComponent(entry.slice(COOKIE.length + 1)));
+    if (Array.isArray(saved.sections)) saved.sections = saved.sections.map((s) => (s === 'video' ? 'display' : s)); // (the Display section was called Video)
     return Object.fromEntries(Object.entries(saved).filter(([name, value]) => VALID[name]?.(value)));
   } catch {
     return {};

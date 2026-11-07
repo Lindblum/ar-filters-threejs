@@ -1,4 +1,4 @@
-// Video → Filter: effects on the camera image, run per pixel in the shaders
+// Display → Filter: effects on the camera image, run per pixel in the shaders
 // that draw it (the depth passthrough, its outfill, and the motion-sensor
 // camera background). Depth Colours needs metric depth at the pixel, so
 // only the depth passthrough can show it; elsewhere it leaves the image

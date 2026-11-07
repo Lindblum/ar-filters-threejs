@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { iconSvg } from './Icon.jsx';
 import { MENU_TOGGLE, SECTION_PREFIX, SET_PREFIX, sliderValue, splitLabel } from './menu.js';
 import { useGazeTarget } from './Gaze.jsx';
+import { guideImage } from './controlsGuide.js';
 import { pulse } from './haptics.js';
 import { PanelSlab } from './PanelSlab.jsx';
 import { holding } from './grip.js';
@@ -24,11 +25,11 @@ import { holding } from './grip.js';
 
 const W = 1000; // canvas px of the reference width...
 const WIDTH_M = 0.44; // ...which is this many metres: sets the text size in XR
-const PAD = 40;
-const TITLE_Y = 72;
+const PAD = 32;
+const TITLE_Y = 68; // (PAD + TOGGLE / 2: the toggle on the padding)
 const LINE_H = 40; // each status line
 const BUTTON_H = 62;
-const GAP = 22;
+const GAP = 16; // between every button and the next, at every level (as windowed: one gap)
 const ICON = 44;
 const ICON_GAP = 28; // between icon and text
 const TOGGLE = 72; // collapse button size
@@ -72,7 +73,7 @@ const SECTION_INDENT = 54; // a section's settings, beneath its button
 // a dropdown's choices: two to a row beneath its button, indented
 const OPTION_FONT = `400 30px ${FONT}`;
 const OPTION_H = 52;
-const OPTION_GAP = 12;
+const OPTION_GAP = 10;
 const OPTION_INDENT = 54;
 const CHECK = 30;
 // a slider: its track between the name and a value wide enough for "0.25×"
@@ -146,9 +147,16 @@ function layout(open, items, lines, panelW, toggleId = MENU_TOGGLE) {
   const w = panelW - 2 * PAD;
   // the sliders' tracks start together, after the widest slider name
   const sliderName = sliderNameWidth(items);
-  let y = TITLE_Y + 34 + lines * LINE_H + 16;
+  let y = TITLE_Y + 34 + lines * LINE_H + 10;
   for (const item of items) {
     const indent = item.indent ? SECTION_INDENT : 0;
+    if (item.guide) {
+      // Options → Controls' drawing, the section's width, as tall as it scales to (nothing to press)
+      const gh = Math.round(((w - indent) * item.guide.height) / item.guide.width);
+      rects.push({ id: item.id, guide: item.guide, x: PAD + indent, y, w: w - indent, h: gh });
+      y += gh + GAP;
+      continue;
+    }
     const r = { id: item.id, item, x: PAD + indent, y, w: w - indent, h: BUTTON_H };
     if (item.slider) {
       const x0 = r.x + INSET + ICON + ICON_GAP + sliderName + ICON_GAP + KNOB / 2;
@@ -380,6 +388,11 @@ export function XRMenuPanel({ toggle, title, status, items, labels, rows, open, 
     ctx.translate(0, -scrolled);
     for (const r of rects) {
       if (r === rects[0]) continue; // (the toggle button, drawn above)
+      if (r.guide) {
+        const img = guideImage(r.guide, r.w, redraw);
+        if (img.complete && img.naturalWidth) ctx.drawImage(img, r.x, r.y, r.w, r.h);
+        continue;
+      }
       if (r.option) {
         // a choice in an open dropdown: smaller, the current one lit and ticked, one this device can't use dimmed
         const { option } = r;
@@ -490,7 +503,7 @@ export function XRMenuPanel({ toggle, title, status, items, labels, rows, open, 
     if (open) py += scrolled;
     const r = rects.find(inside);
     if (r?.track) return sliderKey(r, px);
-    return r && !r.item?.disabled && !r.option?.disabled ? r.id : null;
+    return r && !r.guide && !r.item?.disabled && !r.option?.disabled ? r.id : null;
   };
   // toggle buttons, sections and dropdowns open and close (or switch the view): a stare fires them once
   const toggles = (key) => key === toggle.id || key.startsWith(SECTION_PREFIX) || Boolean(rects.find((r) => r.id === key)?.item?.dropdown);

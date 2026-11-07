@@ -4,12 +4,14 @@ import { XR, createXRStore, useXRSessionModeSupported } from '@react-three/xr';
 import Scene from './Scene.jsx';
 import { sideBySideEvents } from './SideBySide.jsx';
 import Icon from './Icon.jsx';
+import { getLastInput, subscribeLastInput, watchXRInput } from './controlsGuide.js';
 import { PHONE_AR_SESSION_INIT } from './PhoneStereo.jsx';
 import { CardboardOverlay, canUseCardboard, enterCardboard, exitCardboard } from './Cardboard.jsx';
 import { MODELS } from './depth/ml.js';
 import { useDepthStatus } from './depth/store.js';
 import { FILTERS, setFilter } from './filters.js';
 import { loadSettings, saveSettings } from './settings.js';
+import { initSound, playTick, setVolume, wakeSoundInXR } from './sound.js';
 import {
   DEPTH_MODE_LABELS,
   DROPDOWNS,
@@ -21,6 +23,7 @@ import {
   SECTION_PREFIX,
   SET_PREFIX,
   SLIDERS,
+  VOLUME,
   PICK_PREFIX,
   cycle,
   panelModels,
@@ -101,10 +104,11 @@ function useAppState() {
   const [periphery, setPeriphery] = useState(saved.periphery ?? 'outfill'); // the phone viewer beyond the camera: 'black' | 'outfill'
   const [filter, setFilterName] = useState(saved.filter ?? 'none');
   const [background, setBackground] = useState(saved.background ?? 'passthrough'); // see menu.js BACKGROUNDS
+  const [volume, setVolumeLevel] = useState(saved.volume ?? VOLUME.default); // Accessibility → Volume: every interface sound (the menu tick)
   const [textSize, setTextSize] = useState(saved.textSize ?? 1); // the panels' text and icons, a multiplier
   const [controllerGuide, setControllerGuide] = useState(saved.controllerGuide ?? false); // XR labels beside the controllers' buttons
   const [menuOpen, setMenuOpen] = useState(saved.menuOpen ?? true); // shared by the windowed and XR panels
-  const [sections, setSections] = useState(saved.sections ?? ['depth', 'video']); // the open sections, see menu.js
+  const [sections, setSections] = useState(saved.sections ?? ['depth', 'display']); // the open sections, see menu.js
   const [dropdown, setDropdown] = useState(null); // the dropdown whose list is open
 
   const actions = useMemo(
@@ -125,6 +129,7 @@ function useAppState() {
           convergence: setConvergence,
           smoothing: setSmoothing,
           zoom: setZoom,
+          volume: setVolumeLevel,
           textSize: setTextSize,
         })[id](value),
       /** A choice from a dropdown's list (see dropdownChoices), which then closes. */
@@ -145,6 +150,7 @@ function useAppState() {
     periphery,
     filter,
     background,
+    volume,
     textSize,
     controllerGuide,
     menuOpen,
@@ -153,8 +159,9 @@ function useAppState() {
   };
   useEffect(
     () => saveSettings(state),
-    [depthMode, smoothing, convergence, depthMesh, strength, zoom, periphery, filter, background, textSize, controllerGuide, menuOpen, sections],
+    [depthMode, smoothing, convergence, depthMesh, strength, zoom, periphery, filter, background, volume, textSize, controllerGuide, menuOpen, sections],
   );
+  useEffect(() => setVolume(volume), [volume]);
   // the windowed panel's text and icons (styles.css)
   useEffect(() => document.documentElement.style.setProperty('--text-scale', String(textSize)), [textSize]);
   return [state, actions];
@@ -234,6 +241,8 @@ function MenuButtons({ items, labels, onSelect }) {
       {items.map((item) => {
         const trailing = trailingIcon(item);
         if (item.slider) return <MenuSlider key={item.id} item={item} onSelect={onSelect} />;
+        // Options → Controls: a drawing of what the input last touched does (controlsGuide.js)
+        if (item.guide) return <div key={item.id} className="controls-guide indent" dangerouslySetInnerHTML={{ __html: item.guide.svg }} />;
         return (
           <Fragment key={item.id}>
             <button
@@ -455,6 +464,7 @@ export default function App() {
   const session = useSyncExternalStore(store.subscribe, getSession);
   const sessionMode = useSyncExternalStore(store.subscribe, getSessionMode);
   const sessionActive = session != null;
+  const input = useSyncExternalStore(subscribeLastInput, getLastInput); // (the input last touched: Options → Controls shows it)
   // the element the phone AR session shows over its view (see enterXR)
   const overlayRoot = useRef(null);
   // taps on the panel are for the panel, not also a select in the session
@@ -535,7 +545,14 @@ export default function App() {
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, [handheld]);
 
+  // the page's first click or key lets the sound play; in XR (no clicks) the controllers' presses do
+  useEffect(initSound, []);
+  useEffect(() => (session ? wakeSoundInXR(session) : undefined), [session]);
+  // ...and count as the input last touched (see controlsGuide.js)
+  useEffect(() => (session ? watchXRInput(session) : undefined), [session]);
   const onSelect = (id) => {
+    // (the menu tick, as in grid-game-threejs: every press, but not each step of a slider's drag)
+    if (!id.startsWith(SET_PREFIX)) playTick();
     if (id === MENU_TOGGLE) actions.toggleMenu();
     else if (id === VIEW_TOGGLE) {
       const next = inXR ? 'normal' : viewPanelTarget(env);
@@ -583,7 +600,7 @@ export default function App() {
     depthActive: sessionActive && sessionMode === 'immersive-ar',
     depthMode: state.depthMode,
   });
-  const env = { xrSupported, passthroughAvailable, checking: !support.checked, phone, views };
+  const env = { xrSupported, passthroughAvailable, checking: !support.checked, phone, views, input };
   const labels = useMemo(
     () => possibleLabels({ xrSupported, passthroughAvailable, views }),
     [xrSupported, passthroughAvailable, views],

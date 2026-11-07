@@ -8,9 +8,12 @@
 
 import { FILTERS, FILTER_LABELS } from './filters.js';
 
+import { INPUT_NAMES, controlsGuide } from './controlsGuide.js';
+import { CONTROLS } from './controls.js';
+
 export const MENU_TITLE = 'AR Filters';
 
-/** Video → Background, in list order. */
+/** Display → Background, in list order. */
 export const BACKGROUNDS = ['passthrough'];
 const BACKGROUND_LABELS = { passthrough: 'Passthrough (XR Only)' };
 const BACKGROUND_ICONS = { passthrough: 'passthrough' };
@@ -89,7 +92,7 @@ export function splitLabel(label) {
 }
 
 /** Sections: each button opens or closes its settings, indented beneath it. */
-export const SECTIONS = ['depth', 'video', 'accessibility'];
+export const SECTIONS = ['depth', 'controls', 'display', 'accessibility'];
 export const SECTION_PREFIX = 'section:';
 
 export const PICK_PREFIX = 'pick:';
@@ -158,7 +161,7 @@ export const SMOOTHING = { min: 0, max: 1, step: 0.05 };
 const smoothingLabel = (s) => (s > 0 ? `${Math.round(s * 100)}%` : 'Off');
 
 /**
- * Video → Zoom: how far the phone viewer magnifies the camera image, 0..1.
+ * Display → Zoom: how far the phone viewer magnifies the camera image, 0..1.
  * 0 is the camera's actual field of view, true to scale; 1 magnifies it to
  * fill the viewer (see PhoneStereo.jsx).
  */
@@ -166,7 +169,7 @@ export const ZOOM = { min: 0, max: 1, step: 0.05 };
 const zoomLabel = (z) => (z <= 0 ? 'Actual FoV' : z >= 1 ? 'Fill' : `${Math.round(z * 100)}%`);
 
 /**
- * Video → Periphery: what the phone viewer shows beyond the camera's view,
+ * Display → Periphery: what the phone viewer shows beyond the camera's view,
  * which is narrower than the lenses' (unless zoomed to fill): Black or the
  * blurred Outfill.
  */
@@ -176,9 +179,13 @@ const PERIPHERY_LABELS = { black: 'Black', outfill: 'Outfill' };
 /**
  * Accessibility → Text Size: the panels' text and icons, a multiplier (the
  * windowed panel's through styles.css --text-scale; the XR panel, and the
- * Controller Guide's labels, drawn that much bigger).
+ * XR Control Guides' labels, drawn that much bigger).
  */
 export const TEXT_SIZE = { min: 0.75, max: 2, step: 0.25 };
+
+/** Accessibility → Volume: the interface's sounds (the menu tick), 0 (off) to 100%. */
+export const VOLUME = Object.freeze({ min: 0, max: 1, step: 0.1, default: 1 });
+const volumeLabel = (v) => (v > 0 ? `${Math.round(v * 100)}%` : 'Off');
 const textSizeLabel = (t) => `${Math.round(t * 100)}%`;
 
 /** The dropdowns' ids. */
@@ -188,7 +195,7 @@ export const DROPDOWNS = ['depthMode', 'filter', 'periphery', 'background', 'vie
 export const TOGGLES = ['depthMesh', 'controllerGuide'];
 
 /** The sliders' ids. */
-export const SLIDERS = ['convergence', 'smoothing', 'strength', 'zoom', 'textSize'];
+export const SLIDERS = ['convergence', 'smoothing', 'strength', 'zoom', 'volume', 'textSize'];
 
 /** One-shot actions, by button id. */
 export const ACTIONS = [];
@@ -251,7 +258,7 @@ function depthItems(state) {
   ];
 }
 
-function videoItems(state, env) {
+function displayItems(state, env) {
   return [
     {
       id: 'filter',
@@ -276,19 +283,6 @@ function videoItems(state, env) {
       dropdown: dropdown(state, 'periphery', PERIPHERIES.map((p) => PERIPHERY_LABELS[p]), PERIPHERIES.indexOf(state.periphery)),
     },
     {
-      id: 'background',
-      label: `Background: ${BACKGROUND_LABELS[state.background]}`,
-      icon: BACKGROUND_ICONS[state.background],
-      dropdown: dropdown(
-        state,
-        'background',
-        BACKGROUNDS.map((b) => BACKGROUND_LABELS[b]),
-        BACKGROUNDS.indexOf(state.background),
-        BACKGROUNDS.map((b) => BACKGROUND_ICONS[b]),
-        BACKGROUNDS.map((b) => unavailableReason(env, 'background', b)),
-      ),
-    },
-    {
       id: 'view',
       label: `View Mode: ${VIEW_LABELS[state.view]}`,
       icon: VIEW_ICONS[state.view],
@@ -301,31 +295,54 @@ function videoItems(state, env) {
         VIEWS.map((v) => unavailableReason(env, 'view', v)),
       ),
     },
+    {
+      id: 'background',
+      label: `Background: ${BACKGROUND_LABELS[state.background]}`,
+      icon: BACKGROUND_ICONS[state.background],
+      dropdown: dropdown(
+        state,
+        'background',
+        BACKGROUNDS.map((b) => BACKGROUND_LABELS[b]),
+        BACKGROUNDS.indexOf(state.background),
+        BACKGROUNDS.map((b) => BACKGROUND_ICONS[b]),
+        BACKGROUNDS.map((b) => unavailableReason(env, 'background', b)),
+      ),
+    },
   ];
 }
 
-/** Accessibility: the panels' Text Size and the XR Controller Guide. */
+/** Accessibility: Volume, the panels' Text Size and the XR Control Guides. */
 function accessibilityItems(state) {
   return [
+    {
+      id: 'volume',
+      label: `Volume: ${volumeLabel(state.volume)}`,
+      icon: state.volume > 0 ? 'soundOn' : 'soundOff',
+      title: "The interface's sounds (the menu tick)",
+      slider: { ...VOLUME, value: state.volume },
+    },
     {
       id: 'textSize',
       label: `Text Size: ${textSizeLabel(state.textSize)}`,
       icon: 'textSize',
-      title: "The panels' text and icons, and the Controller Guide's labels",
+      title: "The panels' text and icons, and the XR Control Guides' labels",
       slider: { ...TEXT_SIZE, value: state.textSize },
     },
     {
       id: 'controllerGuide',
-      label: `Controller Guide: ${onOff(state.controllerGuide)}`,
+      label: `XR Control Guides: ${onOff(state.controllerGuide)}`,
       icon: 'gamepad',
       title: "In XR, a label beside each of the controllers' buttons and sticks saying what it does",
     },
   ];
 }
 
-const SECTION_ITEMS = { depth: depthItems, video: videoItems, accessibility: accessibilityItems };
-const SECTION_LABELS = { depth: 'Depth', video: 'Video', accessibility: 'Accessibility' };
-const SECTION_ICONS = { depth: 'layers', video: 'video', accessibility: 'accessibility' };
+/** Controls: no settings, but a drawing of what the input last touched does (controlsGuide.js), as an item with `guide`. */
+const controlsItems = (state, env) => [{ id: 'guide:controls', guide: controlsGuide(env.input ?? 'mk', CONTROLS) }];
+
+const SECTION_ITEMS = { depth: depthItems, controls: controlsItems, display: displayItems, accessibility: accessibilityItems };
+const SECTION_LABELS = { depth: 'Depth', controls: 'Controls', display: 'Display', accessibility: 'Accessibility' };
+const SECTION_ICONS = { depth: 'layers', controls: 'controls', display: 'display', accessibility: 'accessibility' };
 
 /**
  * The buttons. Items: { id, label ("Name: Value", see splitLabel), icon,
@@ -334,7 +351,7 @@ const SECTION_ICONS = { depth: 'layers', video: 'video', accessibility: 'accessi
  * moving it sends "set:<id>:<value>". `section`: { open },
  * a section's button ("section:<id>"), drawn with a chevron at the far
  * right; when open (in `state.sections`), its settings follow it with
- * `indent: true`. `dropdown`: { open, options: [{ id, label, selected }] },
+ * `indent: true`. `guide` (Controls'): { svg, width, height }, a drawing, not a button. `dropdown`: { open, options: [{ id, label, selected }] },
  * drawn with a chevron at the far right and, when open, its options
  * beneath. `env`: { xrSupported, passthroughAvailable, checking, phone,
  * views (available) }.
@@ -343,7 +360,8 @@ export function menuItems(state, env) {
   const items = [];
   for (const id of SECTIONS) {
     const open = state.sections.includes(id);
-    items.push({ id: `${SECTION_PREFIX}${id}`, label: SECTION_LABELS[id], icon: SECTION_ICONS[id], section: { open } });
+    const label = id === 'controls' ? `Controls: ${INPUT_NAMES[env.input ?? 'mk']}` : SECTION_LABELS[id];
+    items.push({ id: `${SECTION_PREFIX}${id}`, label, icon: SECTION_ICONS[id], section: { open } });
     if (open) items.push(...SECTION_ITEMS[id](state, env).map((item) => ({ ...item, indent: true })));
   }
   return items;
@@ -406,6 +424,7 @@ const SAMPLE_STATE = {
   filter: FILTERS[0],
   background: BACKGROUNDS[0],
   view: 'normal',
+  volume: 1,
   textSize: 1,
   sections: SECTIONS,
 };
@@ -429,10 +448,12 @@ export function possibleLabels(env) {
     ...FILTERS.map((filter) => ({ filter })),
     ...BACKGROUNDS.map((background) => ({ background })),
     ...VIEWS.map((view) => ({ view })),
+    ...sliderValues(VOLUME).map((volume) => ({ volume })),
     ...sliderValues(TEXT_SIZE).map((textSize) => ({ textSize })),
     { depthMesh: false },
     { controllerGuide: true },
   ];
-  for (const v of variants) for (const item of menuItems({ ...base, ...v }, env)) labels.add(item.label);
+  for (const v of variants) for (const item of menuItems({ ...base, ...v }, env)) if (item.label) labels.add(item.label);
+  for (const name of Object.values(INPUT_NAMES)) labels.add(`Controls: ${name}`);
   return [...labels];
 }

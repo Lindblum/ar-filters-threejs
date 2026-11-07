@@ -5,6 +5,15 @@
   --text: #e8ecf6;
   --muted: #9aa3b8;
   --text-scale: 1; /* Accessibility → Text Size (set by App): the panel's text, and its icons with it (1.25em) */
+  /* the shared panel tokens (see ../threejs-ui/README.md): one gap between every field, at every level */
+  --ui-gap: 6px; /* between fields, and between panels in the column */
+  --ui-pad-y: 4px; /* inside a field, top / bottom... */
+  --ui-pad-x: 8px; /* ...left / right, and between its icon and label */
+  --ui-panel-pad: 10px;
+  --ui-indent: 16px; /* an open section's settings or a dropdown's choices */
+  --ui-field-h: calc(30px * var(--text-scale)); /* a field's least height (more only if a slider's track wraps beneath); a corner toggle is this square */
+  --ui-radius: 8px;
+  --ui-panel-radius: 12px;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -33,31 +42,30 @@ canvas { display: block; touch-action: none; }
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--ui-gap);
   max-width: calc(100vw - 24px);
   max-height: calc(100dvh - 2 * max(12px, env(safe-area-inset-top)));
 }
 .hud {
   width: max-content; /* as wide as the widest possible button (see .menu-sizer) */
   max-width: 100%;
-  padding: 14px 16px;
+  padding: var(--ui-panel-pad);
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--ui-panel-radius);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   font-size: calc(14px * var(--text-scale));
   user-select: none;
 }
 
-.hud header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.hud header { display: flex; align-items: center; gap: var(--ui-pad-x); margin-bottom: var(--ui-gap); }
 .hud h1 { flex: 1; margin: 0; font-size: calc(16px * var(--text-scale)); font-weight: 650; letter-spacing: 0.02em; }
-.hud .collapse { display: grid; place-items: center; width: calc(30px * var(--text-scale)); height: calc(28px * var(--text-scale)); padding: 0; }
+.hud .collapse { display: grid; place-items: center; width: var(--ui-field-h); height: var(--ui-field-h); padding: 0; }
 /* collapsed: just the frame around the gear button */
 .hud.collapsed header { margin-bottom: 0; }
 
-.stats + .stats { margin-top: -6px; }
-.stats { margin: 0 0 10px; color: var(--muted); font-size: calc(12.5px * var(--text-scale)); font-variant-numeric: tabular-nums; }
+.stats { margin: 0 0 var(--ui-gap); color: var(--muted); font-size: calc(12.5px * var(--text-scale)); font-variant-numeric: tabular-nums; }
 
 button {
   font: inherit;
@@ -71,10 +79,10 @@ button {
 button:hover { background: rgba(255, 255, 255, 0.16); }
 
 /* options: equal-width grey buttons, one per setting, "icon  Name: Value" */
-.menu-items { display: flex; flex-direction: column; gap: 10px; }
+.menu-items { display: flex; flex-direction: column; gap: var(--ui-gap); }
 .menu-sizer {
   height: 0;
-  margin-top: -10px; /* cancel the list's gap above it */
+  margin-top: calc(-1 * var(--ui-gap)); /* cancel the list's gap above it */
   overflow: hidden;
   visibility: hidden;
 }
@@ -82,11 +90,11 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-btn {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: calc(var(--ui-pad-x) + 2px);
   width: 100%;
-  min-height: calc(34px * var(--text-scale));
-  padding: 4px 10px;
-  border-radius: 10px;
+  min-height: var(--ui-field-h);
+  padding: var(--ui-pad-y) var(--ui-pad-x);
+  border-radius: var(--ui-radius);
   background: rgba(255, 255, 255, 0.09);
   border-color: rgba(255, 255, 255, 0.14);
   text-align: left;
@@ -98,7 +106,7 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-slider input { flex: 1; min-width: 60px; margin: 0; accent-color: #ffffff; cursor: pointer; }
 .menu-slider .value { flex: none; width: 3.6em; text-align: right; font-variant-numeric: tabular-nums; }
 /* a section's settings, indented beneath its button */
-.menu-btn.indent { width: calc(100% - 24px); margin-left: 24px; }
+.menu-btn.indent { width: calc(100% - var(--ui-indent)); margin-left: var(--ui-indent); }
 .menu-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.4); }
 .menu-btn:disabled { opacity: 0.45; cursor: default; }
 .menu-btn .label { display: flex; flex: 1; gap: 18px; justify-content: space-between; min-width: 0; white-space: nowrap; line-height: 1.25; }
@@ -107,7 +115,7 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .icon { display: inline-flex; flex: none; align-items: center; line-height: 0; }
 .icon svg { display: block; }
 
-.note { margin: 8px 0 0; color: var(--muted); font-size: calc(12px * var(--text-scale)); line-height: 1.45; }
+.note { margin: var(--ui-gap) 0 0; color: var(--muted); font-size: calc(12px * var(--text-scale)); line-height: 1.45; }
 
 .note.error { color: #ff9b8a; }
 
@@ -144,18 +152,18 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .menu-options {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  margin: -4px 0 0 24px;
+  gap: var(--ui-gap);
+  margin-left: var(--ui-indent);
 }
-.menu-options.indent { margin-left: 48px; }
+.menu-options.indent { margin-left: calc(2 * var(--ui-indent)); }
 .menu-option {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  min-height: calc(30px * var(--text-scale));
-  padding: 3px 10px;
-  border-radius: 8px;
+  min-height: calc(26px * var(--text-scale));
+  padding: 2px var(--ui-pad-x);
+  border-radius: var(--ui-radius);
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.1);
   text-align: left;
@@ -194,11 +202,15 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
 .hud header { flex: none; }
 .hud-body {
   min-height: 0;
-  margin-right: -10px; /* the scrollbar sits in the panel's padding, not over the buttons */
-  padding-right: 10px;
+  margin-right: calc(-1 * var(--ui-panel-pad)); /* the scrollbar sits in the panel's padding, not over the buttons */
+  padding-right: var(--ui-panel-pad);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
 }
+
+/* Options → Controls: the drawing of what the input last touched does (controlsGuide.js) */
+.controls-guide svg { display: block; width: 100%; max-width: 420px; height: auto; } /* (wider, its text would outgrow the menu's) */
+.controls-guide.indent { margin-left: var(--ui-indent); }
