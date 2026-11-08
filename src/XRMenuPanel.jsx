@@ -48,7 +48,6 @@ const SCROLLBAR = 8;
 // (2.2 cm) square at the top right corner; a press within GRIP_HIT px of that corner takes it
 const GRIP = 50;
 const GRIP_HIT = 96;
-const MIN_TRACK = 120; // a slider's track, at the narrowest
 const MIN_BUTTON = 420; // a button's width, at the narrowest
 const MAX_W = 2400; // canvas px, about 1 m
 
@@ -76,10 +75,13 @@ const OPTION_H = 52;
 const OPTION_GAP = 10;
 const OPTION_INDENT = 54;
 const CHECK = 30;
-// a slider: its track between the name and a value wide enough for "0.25×"
+// a slider: its name and value, then its track against the right edge, as long in every slider
+// (the windowed panel's 120 px, as in xr-music-threejs), blue where it's filled, and the knob blue
+const TRACK = 280;
 const TRACK_H = 8;
 const KNOB = 30;
-const SLIDER_VALUE_W = 100;
+const SLIDER_BLUE = '#6f8dff';
+const sliderRowWidth = (label) => SECTION_INDENT + INSET + ICON + ICON_GAP + labelWidth(label) + 24 + TRACK + KNOB + INSET;
 const OPTION_ICON = 32;
 const OPTION_ICON_GAP = 14;
 
@@ -96,21 +98,16 @@ function labelWidth(label) {
   return value ? textWidth(`${name}:`, BUTTON_FONT) + VALUE_GAP + textWidth(value, BUTTON_FONT) : textWidth(name, BUTTON_FONT);
 }
 
-function panelWidth(title, labels) {
+function panelWidth(title, labels, sliderLabels) {
   const button = SECTION_INDENT + INSET + ICON + ICON_GAP + Math.max(0, ...labels.map(labelWidth)) + ICON_GAP + TRAILING + INSET;
+  const slider = Math.max(0, ...sliderLabels.map(sliderRowWidth));
   const titleRow = TOGGLE + 24 + textWidth(title, TITLE_FONT);
-  return Math.ceil(2 * PAD + Math.max(button, titleRow));
+  return Math.ceil(2 * PAD + Math.max(button, slider, titleRow));
 }
 
-/** The widest slider name: the sliders' tracks start together after it. */
-function sliderNameWidth(items) {
-  return Math.max(0, ...items.filter((i) => i.slider).map((i) => textWidth(`${splitLabel(i.label).name}:`, BUTTON_FONT)));
-}
-
-/** The narrowest the open panel can be resized to: every slider keeps a track. */
+/** The narrowest the open panel can be resized to: every slider keeps its label and track. */
 function minPanelWidth(items) {
-  const name = sliderNameWidth(items);
-  const slider = name ? SECTION_INDENT + 2 * INSET + ICON + 3 * ICON_GAP + name + KNOB + MIN_TRACK + SLIDER_VALUE_W : 0;
+  const slider = Math.max(0, ...items.filter((i) => i.slider).map((i) => sliderRowWidth(i.label)));
   return Math.ceil(2 * PAD + Math.max(MIN_BUTTON, slider));
 }
 
@@ -145,8 +142,6 @@ function layout(open, items, lines, panelW, toggleId = MENU_TOGGLE) {
   if (!open) return { width: COLLAPSED_W, height: COLLAPSED_H, rects: [toggle] };
   const rects = [toggle];
   const w = panelW - 2 * PAD;
-  // the sliders' tracks start together, after the widest slider name
-  const sliderName = sliderNameWidth(items);
   let y = TITLE_Y + 34 + lines * LINE_H + 10;
   for (const item of items) {
     const indent = item.indent ? SECTION_INDENT : 0;
@@ -159,8 +154,8 @@ function layout(open, items, lines, panelW, toggleId = MENU_TOGGLE) {
     }
     const r = { id: item.id, item, x: PAD + indent, y, w: w - indent, h: BUTTON_H };
     if (item.slider) {
-      const x0 = r.x + INSET + ICON + ICON_GAP + sliderName + ICON_GAP + KNOB / 2;
-      r.track = { x0, x1: r.x + r.w - INSET - SLIDER_VALUE_W - ICON_GAP - KNOB / 2 };
+      const x1 = r.x + r.w - INSET - KNOB / 2;
+      r.track = { x0: x1 - TRACK, x1 };
     }
     rects.push(r);
     y += BUTTON_H + GAP;
@@ -225,8 +220,8 @@ function drawButtonFrame(ctx, r, { hot, disabled }) {
 }
 
 /**
- * A slider row: icon, name, the track with the knob at the value, and the
- * value at the right edge. `hot`: the key under the pointer, whose value
+ * A slider row: icon, name and value, then the track with the knob at the
+ * value. `hot`: the key under the pointer, whose value
  * shows as a ghost knob, so gaze and rays show where a press will set it.
  */
 function drawSlider(ctx, r, hot, redraw) {
@@ -240,16 +235,16 @@ function drawSlider(ctx, r, hot, redraw) {
   ctx.font = BUTTON_FONT;
   centredText(ctx, `${name}:`, r.x + INSET + ICON + ICON_GAP, cy);
   ctx.textAlign = 'right';
-  centredText(ctx, value, r.x + r.w - INSET, cy);
+  centredText(ctx, value, track.x0 - KNOB / 2 - 24, cy);
   ctx.textAlign = 'left';
   const { min, max } = item.slider;
   const at = (v) => track.x0 + ((v - min) / (max - min)) * (track.x1 - track.x0);
   const x = at(item.slider.value);
   roundRect(ctx, track.x0, cy - TRACK_H / 2, track.x1 - track.x0, TRACK_H, TRACK_H / 2);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
   ctx.fill();
   roundRect(ctx, track.x0, cy - TRACK_H / 2, x - track.x0, TRACK_H, TRACK_H / 2);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.fillStyle = SLIDER_BLUE;
   ctx.fill();
   if (hot) {
     ctx.beginPath();
@@ -260,11 +255,11 @@ function drawSlider(ctx, r, hot, redraw) {
   }
   ctx.beginPath();
   ctx.arc(x, cy, KNOB / 2, 0, 2 * Math.PI);
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = SLIDER_BLUE;
   ctx.fill();
 }
 
-export function XRMenuPanel({ toggle, title, status, items, labels, rows, open, onSelect, groupRef, ...groupProps }) {
+export function XRMenuPanel({ toggle, title, status, items, labels, sliderLabels, rows, open, onSelect, groupRef, ...groupProps }) {
   const mesh = useRef(null);
   // a resized panel: its top left in the group, in canvas px, and the width and the height cap it was given
   const [frame, setFrame] = useState(null);
@@ -277,7 +272,10 @@ export function XRMenuPanel({ toggle, title, status, items, labels, rows, open, 
   const statusLines = status ?? [];
   const lines = statusLines.length;
   const statusKey = statusLines.join('|'); // redraw when any line changes
-  const autoW = useMemo(() => panelWidth(title, labels ?? items.map((i) => i.label)), [title, labels, items]);
+  const autoW = useMemo(
+    () => panelWidth(title, labels ?? items.filter((i) => !i.slider).map((i) => i.label), sliderLabels ?? items.filter((i) => i.slider).map((i) => i.label)),
+    [title, labels, sliderLabels, items],
+  );
   const minW = useMemo(() => minPanelWidth(items), [items]);
   const panelW = Math.max(minW, frame?.w ?? autoW);
   const { width, height: contentHeight, rects, top } = useMemo(

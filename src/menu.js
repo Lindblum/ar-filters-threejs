@@ -329,7 +329,7 @@ function accessibilityItems(state) {
     {
       id: 'controllerGuide',
       label: `XR Control Guides: ${onOff(state.controllerGuide)}`,
-      icon: 'gamepad',
+      icon: state.controllerGuide ? 'controllerGuideOn' : 'controllerGuideOff',
       title: "In XR, a label beside each of the controllers' buttons and sticks saying what it does",
     },
   ];
@@ -387,7 +387,7 @@ export function viewPanelTarget(env) {
  * Normal view and XR: Headset, showing the one it switches to (outside XR the
  * headset, in XR the monitor); only where a headset can be used. `labels`: possibleLabels, for the panels' widths.
  */
-export function panelModels(state, env, { status, labels, inXR }) {
+export function panelModels(state, env, { status, labels, sliderLabels, inXR }) {
   const panels = [
     {
       key: 'options',
@@ -397,6 +397,7 @@ export function panelModels(state, env, { status, labels, inXR }) {
       status,
       items: menuItems(state, env),
       labels,
+      sliderLabels,
       rows: MENU_ROWS,
     },
   ];
@@ -434,7 +435,17 @@ export const MENU_ROWS = menuItems(SAMPLE_STATE, {}).length;
  * dropdowns' choices sit two to a row in less room, so they don't set it.)
  */
 export function possibleLabels(env) {
+  return collectLabels(env).labels;
+}
+
+/** possibleLabels' slider labels only: their rows are as wide as their label plus the track. */
+export function possibleSliderLabels(env) {
+  return collectLabels(env).sliders;
+}
+
+function collectLabels(env) {
   const labels = new Set();
+  const sliders = new Set();
   const base = { ...SAMPLE_STATE, depthMesh: true };
   const variants = [
     ...DEPTH_MODES.map((depthMode) => ({ depthMode })),
@@ -451,7 +462,8 @@ export function possibleLabels(env) {
     { depthMesh: false },
     { controllerGuide: true },
   ];
-  for (const v of variants) for (const item of menuItems({ ...base, ...v }, env)) if (item.label) labels.add(item.label);
+  for (const v of variants)
+    for (const item of menuItems({ ...base, ...v }, env)) if (item.label) (item.slider ? sliders : labels).add(item.label);
   for (const name of Object.values(INPUT_NAMES)) labels.add(`Controls: ${name}`);
-  return [...labels];
+  return { labels: [...labels], sliders: [...sliders] };
 }

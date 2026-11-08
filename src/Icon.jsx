@@ -96,16 +96,17 @@ const controls = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="
 <circle cx="17.76" cy="12.48" r="1" fill="currentColor"/>
 </svg>`;
 
-// Accessibility, as in grid-game-threejs: a figure with open arms in a circle
+// Accessibility: a figure with open arms, in a circle (grid-game-threejs's, drawn on this grid; the same in every project)
 const accessibility = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
 <circle cx="12" cy="12" r="9.6" stroke="currentColor" stroke-width="1.5"/>
 <circle cx="12" cy="6.5" r="1.5" fill="currentColor"/>
 <path d="M6.25 9.6h11.5M12 9.6v4.3M9.1 18.7l2.9-4.8 2.9 4.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
-// Text Size: a large "A", then a small one
+// Text Size: a big A beside a small one (the same in every project)
 const textSize = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
-<path d="M2.85 19.2 7.95 4.8l5.05 14.4M4.85 13.9h6.2M14.4 18.7l3.35-8.6 3.35 8.6M15.8 15.4h3.9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M2.75 19.25 8 4.75l5.25 14.5M4.6 14.25h6.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M14.25 19.25 17.75 10l3.5 9.25M15.5 16.25h4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
 const ICONS = {
@@ -128,8 +129,13 @@ const ICONS = {
   soundOn: recolour(volume),
   soundOff: recolour(volumeMute),
   textSize,
-  // XR Control Guides
-  gamepad: recolour(gamepad),
+  // XR Control Guides: a gamepad, struck through when off
+  controllerGuideOn: recolour(gamepad),
+  controllerGuideOff: recolour(gamepad).replace(
+    '</svg>',
+    `<path d="M3.5 3.5 20.5 20.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`,
+  ),
   // a section or dropdown, closed and open, and the chosen option in its list
   dropdown: recolour(chevronDown),
   dropdownOpen: recolour(chevronUp),

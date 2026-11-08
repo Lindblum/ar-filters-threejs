@@ -30,6 +30,7 @@ import {
   viewPanelTarget,
   dropdownChoices,
   possibleLabels,
+  possibleSliderLabels,
   unavailableReason,
   splitLabel,
 } from './menu.js';
@@ -214,28 +215,27 @@ function trailingIcon(item) {
   return null;
 }
 
-/** A slider row: icon, name, the track, and the value at the right edge. */
+/** A slider row: icon, name and value, then the track (as wide in every slider, as in xr-music-threejs). */
 function MenuSlider({ item, onSelect }) {
-  const { name, value } = splitLabel(item.label);
   const { min, max, step } = item.slider;
   return (
     <label className={`menu-btn menu-slider${item.indent ? ' indent' : ''}`} title={item.title}>
       <Icon name={item.icon} />
-      <span className="name">{name}:</span>
+      <Label text={item.label} />
       <input
         type="range"
         min={min}
         max={max}
         step={step}
         value={item.slider.value}
+        aria-label={splitLabel(item.label).name}
         onChange={(e) => onSelect(`${SET_PREFIX}${item.id}:${e.target.value}`)}
       />
-      <span className="value">{value}</span>
     </label>
   );
 }
 
-function MenuButtons({ items, labels, onSelect }) {
+function MenuButtons({ items, labels, sliderLabels, onSelect }) {
   return (
     <div className="menu-items">
       {items.map((item) => {
@@ -282,9 +282,16 @@ function MenuButtons({ items, labels, onSelect }) {
       <div className="menu-sizer" aria-hidden="true">
         {labels.map((label) => (
           <div key={label} className="menu-btn indent">
-            <Icon name="room" />
+            <Icon name="display" />
             <Label text={label} />
             <Icon name="dropdown" />
+          </div>
+        ))}
+        {sliderLabels.map((label) => (
+          <div key={label} className="menu-btn menu-slider indent">
+            <Icon name="display" />
+            <Label text={label} />
+            <input type="range" tabIndex={-1} />
           </div>
         ))}
       </div>
@@ -381,7 +388,7 @@ function Panel({ panel, notes = [], onSelect }) {
             {line}
           </p>
         ))}
-        <MenuButtons items={panel.items} labels={panel.labels} onSelect={onSelect} />
+        <MenuButtons items={panel.items} labels={panel.labels} sliderLabels={panel.sliderLabels ?? []} onSelect={onSelect} />
         {notes.map(({ text, error }) => (
           <p key={text} className={error ? 'note error' : 'note'} role={error ? 'alert' : undefined}>
             {text}
@@ -605,7 +612,11 @@ export default function App() {
     () => possibleLabels({ xrSupported, passthroughAvailable, views }),
     [xrSupported, passthroughAvailable, views],
   );
-  const panels = panelModels({ ...state, view }, env, { status, labels, inXR });
+  const sliderLabels = useMemo(
+    () => possibleSliderLabels({ xrSupported, passthroughAvailable, views }),
+    [xrSupported, passthroughAvailable, views],
+  );
+  const panels = panelModels({ ...state, view }, env, { status, labels, sliderLabels, inXR });
   const notes = [
     error && { text: error, error: true },
   ].filter(Boolean);

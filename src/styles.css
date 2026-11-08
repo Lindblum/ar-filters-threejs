@@ -100,11 +100,10 @@ button:hover { background: rgba(255, 255, 255, 0.16); }
   text-align: left;
   font-size: calc(14.5px * var(--text-scale));
 }
-/* a slider: icon, name, track, value */
-.menu-slider { cursor: default; }
-.menu-slider .name { min-width: 6.9em; } /* the widest slider name: the tracks line up */
-.menu-slider input { flex: 1; min-width: 60px; margin: 0; accent-color: #ffffff; cursor: pointer; }
-.menu-slider .value { flex: none; width: 3.6em; text-align: right; font-variant-numeric: tabular-nums; }
+/* a slider: its name and value, then the track, as wide in every slider (as in xr-music-threejs) */
+.menu-btn.menu-slider { cursor: default; }
+.menu-slider input[type='range'] { flex: none; width: calc(120px * var(--text-scale)); margin: 0; accent-color: #6f8dff; cursor: pointer; }
+.menu-sizer .menu-slider input[type='range'] { visibility: hidden; }
 /* a section's settings, indented beneath its button */
 .menu-btn.indent { width: calc(100% - var(--ui-indent)); margin-left: var(--ui-indent); }
 .menu-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.2); border-color: rgba(255, 255, 255, 0.4); }
