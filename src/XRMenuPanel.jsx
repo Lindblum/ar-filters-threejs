@@ -80,7 +80,7 @@ const CHECK = 30;
 const TRACK = 280;
 const TRACK_H = 8;
 const KNOB = 30;
-const SLIDER_BLUE = '#6f8dff';
+const SLIDER_BLUE = '#5aa0ff';
 const sliderRowWidth = (label) => SECTION_INDENT + INSET + ICON + ICON_GAP + labelWidth(label) + 24 + TRACK + KNOB + INSET;
 const OPTION_ICON = 32;
 const OPTION_ICON_GAP = 14;
