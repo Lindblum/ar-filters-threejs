@@ -19,18 +19,16 @@ const BACKGROUND_LABELS = { passthrough: 'Passthrough (XR Only)' };
 const BACKGROUND_ICONS = { passthrough: 'passthrough' };
 
 /**
- * View Mode, in list order. Normal, 3D: SBS (half side-by-side, for 3D
- * TVs and projectors) and 3D: Interlaced (alternate rows, for passive 3D
- * monitors) are windowed. The rest are XR: XR: Headset on headsets; on
+ * View Mode, in list order. Normal and 3D: SBS (half side-by-side, for 3D
+ * TVs and projectors) are windowed. The rest are XR: XR: Headset on headsets; on
  * phones, XR: Phone AR (one view) and XR: Phone Viewer (two lens-corrected
  * eyes for a phone viewer), as in the 4D viewer.
  */
-export const VIEWS = ['normal', 'sbs', 'interlaced', 'xr', 'phoneAR', 'phoneViewer'];
+export const VIEWS = ['normal', 'sbs', 'xr', 'phoneAR', 'phoneViewer'];
 export const XR_VIEWS = ['xr', 'phoneAR', 'phoneViewer'];
 const VIEW_LABELS = {
   normal: 'Normal',
   sbs: '3D: SBS',
-  interlaced: '3D: Interlaced',
   xr: 'XR: Headset',
   phoneAR: 'XR: Phone AR',
   phoneViewer: 'XR: Phone Viewer',
@@ -38,17 +36,17 @@ const VIEW_LABELS = {
 const VIEW_ICONS = {
   normal: 'monitor',
   sbs: 'monitorSbs',
-  interlaced: 'monitorInterlaced',
+ 
   xr: 'vr',
   phoneAR: 'phone',
   phoneViewer: 'phoneViewer',
 };
-const STEREO_VIEWS = ['sbs', 'interlaced'];
+const STEREO_VIEWS = ['sbs'];
 
 /**
  * The views this device can show. `env`: { phone, headset, xrSupported }. A
  * headset browser's own window can't show screen stereo usefully, so no SBS
- * or Interlaced there. Phones always get their XR views: without WebXR AR
+ * there. Phones always get their XR views: without WebXR AR
  * they fall back to the motion sensors.
  */
 export function availableViews(env) {
@@ -261,28 +259,6 @@ function depthItems(state) {
 function displayItems(state, env) {
   return [
     {
-      id: 'filter',
-      label: `Filter: ${FILTER_LABELS[state.filter]}`,
-      icon: 'filter',
-      title: 'Depth Colours needs depth: the depth passthrough, in XR',
-      dropdown: dropdown(state, 'filter', FILTERS.map((f) => FILTER_LABELS[f]), FILTERS.indexOf(state.filter)),
-    },
-    {
-      id: 'zoom',
-      label: `Zoom: ${zoomLabel(state.zoom)}`,
-      icon: 'zoom',
-      title:
-        "Magnifies the camera image in the phone viewer: Actual FoV is true to scale, Fill magnifies it to fill the lenses (turning then moves it faster than your head)",
-      slider: { ...ZOOM, value: state.zoom },
-    },
-    {
-      id: 'periphery',
-      label: `Periphery: ${PERIPHERY_LABELS[state.periphery]}`,
-      icon: 'phoneViewer',
-      title: "The phone viewer beyond the camera's narrower view. Black; Outfill: the image's edges carried out, blurred",
-      dropdown: dropdown(state, 'periphery', PERIPHERIES.map((p) => PERIPHERY_LABELS[p]), PERIPHERIES.indexOf(state.periphery)),
-    },
-    {
       id: 'view',
       label: `View Mode: ${VIEW_LABELS[state.view]}`,
       icon: VIEW_ICONS[state.view],
@@ -307,6 +283,28 @@ function displayItems(state, env) {
         BACKGROUNDS.map((b) => BACKGROUND_ICONS[b]),
         BACKGROUNDS.map((b) => unavailableReason(env, 'background', b)),
       ),
+    },
+    {
+      id: 'filter',
+      label: `Filter: ${FILTER_LABELS[state.filter]}`,
+      icon: 'filter',
+      title: 'Depth Colours needs depth: the depth passthrough, in XR',
+      dropdown: dropdown(state, 'filter', FILTERS.map((f) => FILTER_LABELS[f]), FILTERS.indexOf(state.filter)),
+    },
+    {
+      id: 'zoom',
+      label: `Zoom: ${zoomLabel(state.zoom)}`,
+      icon: 'zoom',
+      title:
+        "Magnifies the camera image in the phone viewer: Actual FoV is true to scale, Fill magnifies it to fill the lenses (turning then moves it faster than your head)",
+      slider: { ...ZOOM, value: state.zoom },
+    },
+    {
+      id: 'periphery',
+      label: `Periphery: ${PERIPHERY_LABELS[state.periphery]}`,
+      icon: 'phoneViewer',
+      title: "The phone viewer beyond the camera's narrower view. Black; Outfill: the image's edges carried out, blurred",
+      dropdown: dropdown(state, 'periphery', PERIPHERIES.map((p) => PERIPHERY_LABELS[p]), PERIPHERIES.indexOf(state.periphery)),
     },
   ];
 }

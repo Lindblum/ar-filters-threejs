@@ -6,7 +6,6 @@ import * as THREE from 'three';
 import { XRPanels } from './XRPanels.jsx';
 import { holding } from './grip.js';
 import { SideBySide } from './SideBySide.jsx';
-import { Interlaced } from './Interlaced.jsx';
 import { CameraBackground, CardboardRig } from './Cardboard.jsx';
 import { GazeReticle } from './Gaze.jsx';
 import { PhoneStereoXR } from './PhoneStereo.jsx';
@@ -145,7 +144,6 @@ export default function Scene({ state, panels, onSelect, phone }) {
         <Backdrop background={state.background} />
       )}
       {state.view === 'sbs' && !immersive && <SideBySide />}
-      {state.view === 'interlaced' && !immersive && <Interlaced />}
       {phoneStereo && <PhoneStereoXR strength={state.strength} convergence={state.convergence} zoom={state.zoom} />}
       <Lights />
       {!inSession && <FloorGrid />}

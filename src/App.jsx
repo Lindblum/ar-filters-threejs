@@ -34,8 +34,8 @@ import {
   splitLabel,
 } from './menu.js';
 
-// View Mode: Normal, 3D: SBS (half side-by-side, for 3D TVs and projectors)
-// and 3D: Interlaced (alternate rows, for passive 3D monitors) are windowed.
+// View Mode: Normal and 3D: SBS (half side-by-side, for 3D TVs and projectors)
+// are windowed.
 // The XR views start a session, only from a tap, as browsers require, as in
 // the 4D viewer:
 //   XR: Headset (headsets) starts an AR session where supported (so every
@@ -482,7 +482,7 @@ export default function App() {
   const headset = useMemo(isHeadsetBrowser, []);
   const passthroughAvailable = Boolean(support.ar) || phone;
   const views = useMemo(() => availableViews({ phone, headset, xrSupported }), [phone, headset, xrSupported]);
-  const [screenView, setScreenView] = useState('normal'); // outside XR: 'normal' | 'sbs' | 'interlaced'
+  const [screenView, setScreenView] = useState('normal'); // outside XR: 'normal' | 'sbs'
   const [phoneStereo, setPhoneStereo] = useState(true); // phone XR: two lens-corrected eyes
   const [handheld, setHandheld] = useState(false); // the motion-sensor view is showing (phones without AR)
   const inXR = sessionActive || handheld;
