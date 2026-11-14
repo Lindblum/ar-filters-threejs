@@ -109,7 +109,31 @@ const textSize = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="
 <path d="M14.25 19.25 17.75 10l3.5 9.25M15.5 16.25h4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>`;
 
+// VSync, as in grid-game-threejs: a display with a frame edge running
+// straight down it, or, off, torn: the edge jumping sideways halfway down
+const vsyncOn = monitor.replace(
+  '</svg>',
+  `<path d="M10.5 6.75v7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>`,
+);
+const vsyncOff = monitor.replace(
+  '</svg>',
+  `<path d="M9.5 6.75v3.5M13.5 10.25v3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+<path d="M6 10.25h12" stroke="currentColor" stroke-width="1" stroke-opacity="0.45" stroke-linecap="round"/>
+</svg>`,
+);
+
+// XR Resolution: a pixel grid, its cells finer toward one corner (as in grid-game-threejs)
+const xrResolution = `<svg width="1.25em" height="1.25em" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+<rect x="3.75" y="3.75" width="16.5" height="16.5" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+<path d="M12 3.75v16.5M3.75 12h16.5" stroke="currentColor" stroke-width="1.5"/>
+<path d="M7.9 3.75V12M3.75 7.9H12" stroke="currentColor" stroke-width="1" stroke-opacity="0.6"/>
+</svg>`;
+
 const ICONS = {
+  vsyncOn,
+  vsyncOff,
+  xrResolution,
   layers: recolour(layers),
   camera: recolour(camera),
   // Depth → Algorithm: a flowchart

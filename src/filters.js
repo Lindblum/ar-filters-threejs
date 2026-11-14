@@ -14,6 +14,7 @@ export const FILTERS = [
   'cartoon',
   'night',
   'thermal',
+  'fire',
   'depthColor',
 ];
 export const FILTER_LABELS = {
@@ -26,6 +27,7 @@ export const FILTER_LABELS = {
   cartoon: 'Cartoon',
   night: 'Night Vision',
   thermal: 'Thermal',
+  fire: 'Fire',
   depthColor: 'Depth Colours',
 };
 export const DEPTH_FILTERS = ['depthColor'];
@@ -36,7 +38,7 @@ export const DEPTH_FILTERS = ['depthColor'];
  */
 export const filterUniforms = {
   filterId: { value: 0 },
-  filterTime: { value: 0 },
+  filterTime: { value: 0 }, // seconds; also scrolls Fire's flames
 };
 
 export function setFilter(name) {
@@ -102,6 +104,50 @@ ${FILTER_DEFINES}
 
   float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 
+  // smooth value noise, 0..1, and three octaves of it (0..0.875)
+  float vnoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+  }
+  float fbm(vec2 p) {
+    float s = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 3; i++) {
+      s += a * vnoise(p);
+      p = p * 2.03 + 17.0;
+      a *= 0.5;
+    }
+    return s;
+  }
+
+  // flame colours: black, deep red, orange, yellow, near white
+  vec3 firePalette(float x) {
+    vec3 c = mix(vec3(0.0), vec3(0.7, 0.04, 0.0), smoothstep(0.0, 0.3, x));
+    c = mix(c, vec3(1.0, 0.38, 0.0), smoothstep(0.3, 0.6, x));
+    c = mix(c, vec3(1.0, 0.82, 0.2), smoothstep(0.6, 0.85, x));
+    return mix(c, vec3(1.0, 1.0, 0.85), smoothstep(0.85, 1.0, x));
+  }
+
+  // Fire's flame tongues at uv: noise rising over time (uv y is up)
+  float fireNoise(vec2 uv) {
+    return fbm(vec2(uv.x * 22.0, uv.y * 9.0 - filterTime * 2.2)) * 1.6;
+  }
+
+  // the scene darkened and warmed, as if lit by the flames, plus the flames
+  vec3 fireLook(vec3 c, float flame) {
+    vec3 lit = vec3(luma(c)) * vec3(1.0, 0.5, 0.25) * (0.75 + 0.25 * sin(filterTime * 9.0 + sin(filterTime * 23.0)));
+    flame = clamp(flame, 0.0, 1.0);
+    return clamp(lit * (1.0 - 0.6 * flame) + firePalette(flame), 0.0, 1.0);
+  }
+
+  // how much the image changes at uv, cheaply (three taps)
+  float lumaStep(sampler2D map, vec2 uv, vec2 d) {
+    float c = luma(texture2D(map, uv).rgb);
+    return abs(luma(texture2D(map, uv + vec2(d.x, 0.0)).rgb) - c) + abs(luma(texture2D(map, uv + vec2(0.0, d.y)).rgb) - c);
+  }
+
   vec3 filterColor(vec3 c, vec2 uv, float depth, float depthEdge) {
     if (filterId == F_GRAYSCALE) return vec3(luma(c));
     if (filterId == F_SEPIA) {
@@ -116,6 +162,10 @@ ${FILTER_DEFINES}
       return vec3(0.15, 1.0, 0.25) * clamp(g, 0.0, 1.0);
     }
     if (filterId == F_THERMAL) return ironbow(smoothstep(0.05, 0.95, luma(c)));
+    if (filterId == F_FIRE) { // no neighbours here: bright things burn
+      float l = luma(c);
+      return fireLook(c, l * l * fireNoise(uv));
+    }
     if (depth < 0.0) return c; // the rest need depth
     if (filterId == F_DEPTH_COLOR) return turbo(1.0 - clamp(log(depth / 0.3) / log(20.0), 0.0, 1.0)); // 0.3 m red .. 6 m blue
     return c;
@@ -127,6 +177,21 @@ ${FILTER_DEFINES}
     if (filterId == F_CARTOON) {
       vec3 flat_ = floor(c * 5.0 + 0.5) / 5.0;
       return flat_ * (1.0 - smoothstep(0.25, 0.55, sobel(map, uv, texel * 1.5)));
+    }
+    if (filterId == F_FIRE) {
+      // heat shimmer: the image wavers sideways
+      vec2 suv = uv + vec2(vnoise(uv * vec2(45.0, 28.0) + vec2(0.0, -filterTime * 3.5)) - 0.5, 0.0) * 0.005;
+      c = texture2D(map, suv).rgb;
+      // fuel: outlines at and just below this pixel, so flames rise off every edge
+      float fuel = 0.0;
+      for (int i = 0; i < 5; i++) {
+        float fi = float(i);
+        fuel += lumaStep(map, suv - vec2(0.0, 0.011 * fi), texel * 2.0) * (1.0 - fi * 0.17);
+      }
+      fuel = smoothstep(0.04, 0.5, fuel);
+      if (depth >= 0.0) fuel = max(fuel, smoothstep(0.02, 0.12, depthEdge)); // and off silhouettes
+      float l = luma(c);
+      return fireLook(c, (fuel * 1.3 + l * l * 0.5) * fireNoise(uv));
     }
     return filterColor(c, uv, depth, depthEdge);
   }

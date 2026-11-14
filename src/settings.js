@@ -5,6 +5,7 @@
 // to the default, never put the menu in a state it can't show.
 
 import { FILTERS } from './filters.js';
+import { XR_RESOLUTION } from './xrResolution.js';
 import { BACKGROUNDS, CONVERGENCE, DEPTH_MODES, PERIPHERIES, SECTIONS, SMOOTHING, STRENGTH, TEXT_SIZE, VOLUME, ZOOM } from './menu.js';
 
 const COOKIE = 'ar-filters-settings';
@@ -27,6 +28,8 @@ const VALID = {
   volume: inRange(VOLUME),
   textSize: inRange(TEXT_SIZE),
   controllerGuide: (v) => typeof v === 'boolean',
+  vsync: (v) => typeof v === 'boolean',
+  xrResolution: inRange(XR_RESOLUTION),
   menuOpen: (v) => typeof v === 'boolean',
   sections: (v) => Array.isArray(v) && v.every((s) => SECTIONS.includes(s)),
 };

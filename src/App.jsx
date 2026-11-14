@@ -12,6 +12,8 @@ import { useDepthStatus } from './depth/store.js';
 import { FILTERS, setFilter } from './filters.js';
 import { loadSettings, saveSettings } from './settings.js';
 import { initSound, playTick, setVolume, wakeSoundInXR } from './sound.js';
+import { XR_RESOLUTION, setXRViewportScale } from './xrResolution.js';
+import { VSync } from './VSync.jsx';
 import {
   DEPTH_MODE_LABELS,
   DROPDOWNS,
@@ -60,6 +62,7 @@ const xrOptions = {
   foveation: 0.5,
 };
 const store = createXRStore(xrOptions);
+const XR_RESOLUTION_SETTLE_MS = 700; // XR Resolution unchanged this long in a session: it's been let go of
 
 /** The headset session's options: the library's defaults, all optional so any headset starts. */
 const HEADSET_SESSION_INIT = {
@@ -108,13 +111,17 @@ function useAppState() {
   const [volume, setVolumeLevel] = useState(saved.volume ?? VOLUME.default); // Accessibility → Volume: every interface sound (the menu tick)
   const [textSize, setTextSize] = useState(saved.textSize ?? 1); // the panels' text and icons, a multiplier
   const [controllerGuide, setControllerGuide] = useState(saved.controllerGuide ?? false); // XR labels beside the controllers' buttons
+  const [vsync, setVSync] = useState(saved.vsync ?? true); // Display → VSync (see VSync.jsx)
+  const [xrResolution, setXRResolution] = useState(saved.xrResolution ?? XR_RESOLUTION.default); // Display → XR Resolution: the headset's framebuffer scale
+  const [xrResolutionActive, setXRResolutionActive] = useState(null); // ...the running session's (null outside XR)
   const [menuOpen, setMenuOpen] = useState(saved.menuOpen ?? true); // shared by the windowed and XR panels
   const [sections, setSections] = useState(saved.sections ?? ['depth', 'display']); // the open sections, see menu.js
   const [dropdown, setDropdown] = useState(null); // the dropdown whose list is open
 
   const actions = useMemo(
     () => ({
-      toggle: (id) => ({ depthMesh: setDepthMesh, controllerGuide: setControllerGuide })[id]((v) => !v),
+      toggle: (id) => ({ depthMesh: setDepthMesh, controllerGuide: setControllerGuide, vsync: setVSync })[id]((v) => !v),
+      setXRResolutionActive,
       nextFilter: (step = 1) => setFilterName((f) => cycle(FILTERS, f, step)),
       toggleMenu: () => setMenuOpen((v) => !v),
       toggleSection: (id) => {
@@ -132,6 +139,7 @@ function useAppState() {
           zoom: setZoom,
           volume: setVolumeLevel,
           textSize: setTextSize,
+          xrResolution: setXRResolution,
         })[id](value),
       /** A choice from a dropdown's list (see dropdownChoices), which then closes. */
       pick: (id, choice) => {
@@ -154,15 +162,20 @@ function useAppState() {
     volume,
     textSize,
     controllerGuide,
+    vsync,
+    xrResolution,
+    xrResolutionActive,
     menuOpen,
     sections,
     dropdown,
   };
   useEffect(
     () => saveSettings(state),
-    [depthMode, smoothing, convergence, depthMesh, strength, zoom, periphery, filter, background, volume, textSize, controllerGuide, menuOpen, sections],
+    [depthMode, smoothing, convergence, depthMesh, strength, zoom, periphery, filter, background, volume, textSize, controllerGuide, vsync, xrResolution, menuOpen, sections],
   );
   useEffect(() => setVolume(volume), [volume]);
+  // (turned down in a session: shown at once, each eye drawn into that share of its framebuffer)
+  useEffect(() => setXRViewportScale(xrResolution, xrResolutionActive), [xrResolution, xrResolutionActive]);
   // the windowed panel's text and icons (styles.css)
   useEffect(() => document.documentElement.style.setProperty('--text-scale', String(textSize)), [textSize]);
   return [state, actions];
@@ -503,6 +516,7 @@ export default function App() {
   const enterXR = async (stereo) => {
     setError(null);
     let label = 'AR';
+    xrOptions.frameBufferScaling = state.xrResolution; // (fixed for the session: see xrResolution.js)
     try {
       if (phone && support.ar) {
         const init = {
@@ -525,8 +539,45 @@ export default function App() {
     } catch (e) {
       console.error(`[ar-filters] could not start ${label}`, e);
       setError(`Couldn't start ${label}: ${describe(e)}`);
+      return false;
     }
+    if (store.getState().session) actions.setXRResolutionActive(state.xrResolution);
+    return true;
   };
+  useEffect(() => {
+    if (!sessionActive) actions.setXRResolutionActive(null);
+  }, [sessionActive, actions]);
+  // XR Resolution changed in a session: once it's let go of (no change for a moment: in XR each
+  // press on the track sets it), the session restarts at the new size; if the browser wants a fresh
+  // tap for that, the next tap or key goes back in
+  const restartingXR = useRef(false);
+  useEffect(() => {
+    if (!session || handheld || state.xrResolutionActive == null || state.xrResolution === state.xrResolutionActive) return;
+    const timer = setTimeout(async () => {
+      if (restartingXR.current) return;
+      restartingXR.current = true;
+      try {
+        const ended = new Promise((resolve) => session.addEventListener('end', resolve, { once: true }));
+        session.end();
+        await ended;
+        if ((await enterXR(phoneStereo)) && store.getState().session) return;
+        setError('XR Resolution changed: tap anywhere to go back into XR');
+        const back = (e) => {
+          window.removeEventListener('pointerup', back, true);
+          window.removeEventListener('keydown', back, true);
+          if (store.getState().session) return;
+          e.preventDefault();
+          e.stopPropagation();
+          enterXR(phoneStereo);
+        };
+        window.addEventListener('pointerup', back, true);
+        window.addEventListener('keydown', back, true);
+      } finally {
+        restartingXR.current = false;
+      }
+    }, XR_RESOLUTION_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [session, handheld, state.xrResolution, state.xrResolutionActive]); // eslint-disable-line react-hooks/exhaustive-deps
   // out of XR
   const exitXR = () => {
     if (handheld) {
@@ -625,6 +676,7 @@ export default function App() {
     <>
       <Canvas flat dpr={[1, 2]} events={sideBySideEvents} camera={{ position: [1.6, 2.2, 1.8], fov: 50, near: 0.05, far: 200 }}>
         <XR store={store}>
+          <VSync vsync={state.vsync} />
           <Scene
             state={{ ...state, view, stereo: phoneStereo, handheld, domMenu, passthrough: state.background === 'passthrough' }}
             panels={panels}

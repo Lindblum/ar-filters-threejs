@@ -10,6 +10,7 @@ import { FILTERS, FILTER_LABELS } from './filters.js';
 
 import { INPUT_NAMES, controlsGuide } from './controlsGuide.js';
 import { CONTROLS } from './controls.js';
+import { XR_RESOLUTION } from './xrResolution.js';
 
 export const MENU_TITLE = 'AR Filters';
 
@@ -190,10 +191,10 @@ const textSizeLabel = (t) => `${Math.round(t * 100)}%`;
 export const DROPDOWNS = ['depthMode', 'filter', 'periphery', 'background', 'view'];
 
 /** The on / off settings, by button id. */
-export const TOGGLES = ['depthMesh', 'controllerGuide'];
+export const TOGGLES = ['depthMesh', 'controllerGuide', 'vsync'];
 
 /** The sliders' ids. */
-export const SLIDERS = ['convergence', 'smoothing', 'strength', 'zoom', 'volume', 'textSize'];
+export const SLIDERS = ['convergence', 'smoothing', 'strength', 'zoom', 'volume', 'textSize', 'xrResolution'];
 
 /** One-shot actions, by button id. */
 export const ACTIONS = [];
@@ -305,6 +306,19 @@ function displayItems(state, env) {
       icon: 'phoneViewer',
       title: "The phone viewer beyond the camera's narrower view. Black; Outfill: the image's edges carried out, blurred",
       dropdown: dropdown(state, 'periphery', PERIPHERIES.map((p) => PERIPHERY_LABELS[p]), PERIPHERIES.indexOf(state.periphery)),
+    },
+    {
+      id: 'vsync',
+      label: `VSync: ${onOff(state.vsync)}`,
+      icon: state.vsync ? 'vsyncOn' : 'vsyncOff',
+      title: 'On: a frame per display refresh. Off: frames as fast as they can be drawn (not in XR)',
+    },
+    {
+      id: 'xrResolution',
+      label: `XR Resolution: ${Math.round(state.xrResolution * 100)}%${state.xrResolutionActive != null && state.xrResolution !== state.xrResolutionActive ? ' (on release)' : ''}`,
+      icon: 'xrResolution',
+      title: "The headset's resolution: lower draws faster (changed in XR, the session restarts at the new size when you let go)",
+      slider: { ...XR_RESOLUTION, value: state.xrResolution },
     },
   ];
 }
@@ -425,6 +439,9 @@ const SAMPLE_STATE = {
   view: 'normal',
   volume: 1,
   textSize: 1,
+  vsync: true,
+  xrResolution: 1,
+  xrResolutionActive: null,
   sections: SECTIONS,
 };
 export const MENU_ROWS = menuItems(SAMPLE_STATE, {}).length;
@@ -459,8 +476,11 @@ function collectLabels(env) {
     ...VIEWS.map((view) => ({ view })),
     ...sliderValues(VOLUME).map((volume) => ({ volume })),
     ...sliderValues(TEXT_SIZE).map((textSize) => ({ textSize })),
+    ...sliderValues(XR_RESOLUTION).map((xrResolution) => ({ xrResolution })),
+    { xrResolution: XR_RESOLUTION.max, xrResolutionActive: XR_RESOLUTION.min },
     { depthMesh: false },
     { controllerGuide: true },
+    { vsync: false },
   ];
   for (const v of variants)
     for (const item of menuItems({ ...base, ...v }, env)) if (item.label) (item.slider ? sliders : labels).add(item.label);
